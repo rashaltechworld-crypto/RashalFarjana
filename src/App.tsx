@@ -284,6 +284,15 @@ export default function App() {
   const [tgChannel2Url, setTgChannel2Url] = useState('');
   const [tgMiniAppUrl, setTgMiniAppUrl] = useState('https://t.me/RF_SMM_PRO_BOT?startapp=8479465879');
 
+  const escapeHtml = (str: any) => {
+    if (!str) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  };
+
   const sendOrderToTelegramChannel = async (orderInfo: {
     orderId: string;
     userName: string;
@@ -295,25 +304,40 @@ export default function App() {
     apiOrderId?: string | number;
   }) => {
     try {
-      const token = tgBotToken || '8417495766:AAEupqJEr6_IyvOcGXhhdWStj95khUdr8MU';
-      const ch1Id = tgChannel1Id || '-1003911086814';
-      const ch1Url = tgChannel1Url || 'https://t.me/RF2_SMM';
+      const token = tgBotToken.trim() || '8417495766:AAEupqJEr6_IyvOcGXhhdWStj95khUdr8MU';
+      const ch1Id = tgChannel1Id.trim() || '-1003911086814';
+      const ch1Url = tgChannel1Url.trim() || 'https://t.me/RF2_SMM';
       const ch2Id = tgChannel2Id.trim();
       const ch2Url = tgChannel2Url.trim();
-      const miniApp = tgMiniAppUrl || 'https://t.me/RF_SMM_PRO_BOT?startapp=8479465879';
+      const miniApp = tgMiniAppUrl.trim() || 'https://t.me/RF_SMM_PRO_BOT?startapp=8479465879';
 
-      const text = `🛍️ <b>NEW LIVE ORDER PLACED!</b>\n` +
+      const shortOrderId = orderInfo.orderId ? orderInfo.orderId.slice(-6).toUpperCase() : 'NEW';
+
+      const textHtml = `🛍️ <b>NEW LIVE ORDER PLACED!</b>\n` +
         `━━━━━━━━━━━━━━━━━━━\n` +
-        `🆔 <b>Order ID:</b> <code>#${orderInfo.orderId.slice(-6).toUpperCase()}</code>\n` +
-        (orderInfo.apiOrderId ? `⚡ <b>API Order ID:</b> <code>${orderInfo.apiOrderId}</code>\n` : '') +
-        `👤 <b>Customer:</b> ${orderInfo.userName || 'User'}\n` +
-        `📦 <b>Service:</b> ${orderInfo.serviceName}\n` +
-        `🔢 <b>Quantity:</b> ${orderInfo.quantity.toLocaleString()}\n` +
-        `💰 <b>Cost:</b> ৳ ${orderInfo.cost.toFixed(2)}\n` +
-        `📌 <b>Status:</b> ${orderInfo.status || 'Processing'}\n` +
-        `🔗 <b>Target Link:</b>\n<code>${orderInfo.link}</code>\n` +
+        `🆔 <b>Order ID:</b> <code>#${escapeHtml(shortOrderId)}</code>\n` +
+        (orderInfo.apiOrderId ? `⚡ <b>API Order ID:</b> <code>${escapeHtml(orderInfo.apiOrderId)}</code>\n` : '') +
+        `👤 <b>Customer:</b> ${escapeHtml(orderInfo.userName || 'Customer')}\n` +
+        `📦 <b>Service:</b> ${escapeHtml(orderInfo.serviceName)}\n` +
+        `🔢 <b>Quantity:</b> ${(orderInfo.quantity || 0).toLocaleString()}\n` +
+        `💰 <b>Cost:</b> ৳ ${(orderInfo.cost || 0).toFixed(2)}\n` +
+        `📌 <b>Status:</b> ${escapeHtml(orderInfo.status || 'Processing')}\n` +
+        `🔗 <b>Target Link:</b>\n<code>${escapeHtml(orderInfo.link)}</code>\n` +
         `━━━━━━━━━━━━━━━━━━━\n` +
         `🚀 <i>Fastest SMM Panel Service in Bangladesh! Order via Bot or Mini App below:</i>`;
+
+      const textPlain = `🛍️ NEW LIVE ORDER PLACED!\n` +
+        `--------------------\n` +
+        `🆔 Order ID: #${shortOrderId}\n` +
+        (orderInfo.apiOrderId ? `⚡ API Order ID: ${orderInfo.apiOrderId}\n` : '') +
+        `👤 Customer: ${orderInfo.userName || 'Customer'}\n` +
+        `📦 Service: ${orderInfo.serviceName}\n` +
+        `🔢 Quantity: ${(orderInfo.quantity || 0).toLocaleString()}\n` +
+        `💰 Cost: ৳ ${(orderInfo.cost || 0).toFixed(2)}\n` +
+        `📌 Status: ${orderInfo.status || 'Processing'}\n` +
+        `🔗 Target Link:\n${orderInfo.link}\n` +
+        `--------------------\n` +
+        `🚀 Order via Bot or Mini App below:`;
 
       const keyboardButtons: any[] = [
         { text: '🚀 Open Mini App', url: miniApp },
@@ -324,35 +348,58 @@ export default function App() {
         keyboardButtons.push({ text: '📢 Channel 2', url: ch2Url });
       }
 
-      const buildBody = (chatId: string) => ({
-        chat_id: chatId,
-        text: text,
-        parse_mode: 'HTML',
-        disable_web_page_preview: true,
-        reply_markup: {
-          inline_keyboard: [keyboardButtons]
+      const postToTelegram = async (chatId: string) => {
+        const url = `https://api.telegram.org/bot${token}/sendMessage`;
+        // Attempt 1: Send HTML formatted message
+        try {
+          const res = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              chat_id: chatId,
+              text: textHtml,
+              parse_mode: 'HTML',
+              disable_web_page_preview: true,
+              reply_markup: { inline_keyboard: [keyboardButtons] }
+            })
+          });
+          const data = await res.json();
+          if (data && data.ok) return { ok: true, data };
+
+          console.warn(`Telegram HTML post failed for ${chatId}:`, data?.description);
+          // Attempt 2: Fallback to plain text if HTML parsing failed
+          const fallbackRes = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              chat_id: chatId,
+              text: textPlain,
+              disable_web_page_preview: true,
+              reply_markup: { inline_keyboard: [keyboardButtons] }
+            })
+          });
+          const fallbackData = await fallbackRes.json();
+          return { ok: !!fallbackData?.ok, data: fallbackData, error: fallbackData?.description || data?.description };
+        } catch (fetchErr: any) {
+          console.error(`Fetch exception to Telegram for ${chatId}:`, fetchErr);
+          return { ok: false, error: fetchErr?.message };
         }
-      });
+      };
 
-      // Send to Channel 1
+      let ch1Result: { ok: boolean; data?: any; error?: string } = { ok: false, error: '' };
+      let ch2Result: { ok: boolean; data?: any; error?: string } = { ok: false, error: '' };
+
       if (ch1Id) {
-        await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(buildBody(ch1Id))
-        });
+        ch1Result = await postToTelegram(ch1Id);
+      }
+      if (ch2Id) {
+        ch2Result = await postToTelegram(ch2Id);
       }
 
-      // Send to Channel 2 (if configured)
-      if (ch2Id) {
-        await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(buildBody(ch2Id))
-        });
-      }
-    } catch (err) {
+      return { ch1Result, ch2Result };
+    } catch (err: any) {
       console.error('Failed to send Telegram channel alert:', err);
+      return { error: err?.message };
     }
   };
 
@@ -360,7 +407,7 @@ export default function App() {
     haptic('heavy');
     showToast('Sending test message to Telegram channel...', 'info');
     try {
-      await sendOrderToTelegramChannel({
+      const res = await sendOrderToTelegramChannel({
         orderId: 'TEST_' + Math.floor(100000 + Math.random() * 900000),
         userName: currentUser?.name || 'Admin Test',
         serviceName: 'Facebook Page Likes & Followers (Real & Refill)',
@@ -370,10 +417,37 @@ export default function App() {
         status: 'Processing',
         apiOrderId: 849201
       });
-      showToast('✅ Test message sent to Telegram channel!', 'success');
-      haptic('success');
+
+      if (res?.ch1Result?.ok) {
+        showToast('✅ Test message sent to Telegram channel!', 'success');
+        haptic('success');
+      } else {
+        const errMsg = res?.ch1Result?.error || res?.error || 'Telegram API returned an error';
+        showToast(`❌ Telegram error: ${errMsg}`, 'error');
+        haptic('error');
+      }
     } catch (e: any) {
       showToast('Failed to send test message: ' + e.message, 'error');
+      haptic('error');
+    }
+  };
+
+  const handleSaveTelegramSettings = async () => {
+    haptic('heavy');
+    try {
+      await setDoc(doc(db, 'settings', 'telegram'), {
+        botToken: tgBotToken.trim(),
+        channel1Id: tgChannel1Id.trim(),
+        channel1Url: tgChannel1Url.trim(),
+        channel2Id: tgChannel2Id.trim(),
+        channel2Url: tgChannel2Url.trim(),
+        miniAppUrl: tgMiniAppUrl.trim(),
+        updatedAt: serverTimestamp()
+      });
+      showToast('✅ Telegram Settings saved to database!', 'success');
+      haptic('success');
+    } catch (e: any) {
+      showToast('Failed to save Telegram settings: ' + e.message, 'error');
       haptic('error');
     }
   };
@@ -626,6 +700,22 @@ export default function App() {
     };
 
     initApp();
+  }, []);
+
+  // Sync Telegram Settings from Firestore
+  useEffect(() => {
+    const unsub = onSnapshot(doc(db, 'settings', 'telegram'), (docSnap) => {
+      if (docSnap.exists()) {
+        const d = docSnap.data();
+        if (d.botToken) setTgBotToken(d.botToken);
+        if (d.channel1Id) setTgChannel1Id(d.channel1Id);
+        if (d.channel1Url) setTgChannel1Url(d.channel1Url);
+        if (d.channel2Id !== undefined) setTgChannel2Id(d.channel2Id);
+        if (d.channel2Url !== undefined) setTgChannel2Url(d.channel2Url);
+        if (d.miniAppUrl) setTgMiniAppUrl(d.miniAppUrl);
+      }
+    });
+    return () => unsub();
   }, []);
 
   // 2. Realtime User Info Sync
@@ -1894,7 +1984,7 @@ export default function App() {
       }
 
       // 4. Send Live Order Alert to Telegram Channel
-      sendOrderToTelegramChannel({
+      await sendOrderToTelegramChannel({
         orderId: orderRef.id,
         userName: currentUser.name || currentUser.username || 'Customer',
         serviceName: sname,
@@ -4546,13 +4636,22 @@ export default function App() {
                       </div>
                     </div>
 
-                    <button
-                      onClick={handleTestTelegramNotification}
-                      className="w-full py-2.5 bg-gradient-to-r from-sky-600 to-blue-600 hover:from-sky-500 hover:to-blue-500 text-white font-extrabold text-xs rounded-xl shadow transition active:scale-95 flex items-center justify-center gap-2"
-                    >
-                      <i className="fab fa-telegram-plane"></i>
-                      <span>TEST TELEGRAM CHANNEL NOTIFICATION (টেস্ট নোটিফিকেশন পাঠান)</span>
-                    </button>
+                    <div className="flex gap-2 pt-1">
+                      <button
+                        onClick={handleSaveTelegramSettings}
+                        className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs rounded-xl shadow transition active:scale-95 flex items-center justify-center gap-2"
+                      >
+                        <i className="fas fa-save"></i>
+                        <span>SAVE TELEGRAM SETTINGS (সেটিংস সেভ করুন)</span>
+                      </button>
+                      <button
+                        onClick={handleTestTelegramNotification}
+                        className="flex-1 py-2.5 bg-gradient-to-r from-sky-600 to-blue-600 hover:from-sky-500 hover:to-blue-500 text-white font-extrabold text-xs rounded-xl shadow transition active:scale-95 flex items-center justify-center gap-2"
+                      >
+                        <i className="fab fa-telegram-plane"></i>
+                        <span>TEST TELEGRAM NOTIFICATION (টেস্ট করুন)</span>
+                      </button>
+                    </div>
                   </div>
 
                   {/* SMM Panel API Config */}
