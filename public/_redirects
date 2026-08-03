@@ -1,0 +1,3 @@
+/api/smm/order https://my.smmgen.com/api/v2 200!
+/api/smm/services https://my.smmgen.com/api/v2?key=abb6b46205ede0b57a7c53580646fc7a&action=services 200!
+/* /index.html 200

@@ -1,0 +1,6 @@
+{
+  "name": "RF SMM Panel BD",
+  "description": "Bangladesh's #1 Social Media Marketing (SMM) Panel with automated ordering, coin balance management, bKash/Nagad/Rocket payment requests, and SMMGen API integration.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
