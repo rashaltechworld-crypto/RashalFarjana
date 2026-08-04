@@ -105,8 +105,12 @@ def handle_start(chat_id, first_name):
                 {"text": "🚀 Launch RF SMM Mini App", "url": MINI_APP_URL}
             ],
             [
-                {"text": "📢 Official Channel", "url": CHANNEL_URL},
-                {"text": "💬 Support", "url": "https://t.me/RF2_SMM"}
+                {"text": "📢 Farju Tech Studio", "url": "https://t.me/Farju_Tech_Studio"},
+                {"text": "📢 Rashal Tech World", "url": "https://t.me/RashalTechWorld"}
+            ],
+            [
+                {"text": "📢 RF2 SMM Official", "url": "https://t.me/RF2_SMM"},
+                {"text": "📢 Farju SMM Panel", "url": "https://t.me/FARJU_SMM_PANAL"}
             ]
         ]
     }
