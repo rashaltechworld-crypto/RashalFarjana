@@ -285,37 +285,110 @@ export default function App() {
   const [tgMiniAppUrl, setTgMiniAppUrl] = useState('https://t.me/RF_SMM_PRO_BOT?startapp=8479465879');
 
   // Mandatory Telegram Channels State
-  const [mandatoryChannels, setMandatoryChannels] = useState<Array<{ name: string; url: string }>>([
-    { name: 'Farju Tech Studio', url: 'https://t.me/Farju_Tech_Studio' },
-    { name: 'Rashal Tech World', url: 'https://t.me/RashalTechWorld' },
-    { name: 'RF2 SMM Official', url: 'https://t.me/RF2_SMM' },
-    { name: 'Farju SMM Panel', url: 'https://t.me/FARJU_SMM_PANAL' }
+  const [mandatoryChannels, setMandatoryChannels] = useState<Array<{ name: string; url: string; chatId?: string }>>([
+    { name: 'Farju Tech Studio', url: 'https://t.me/Farju_Tech_Studio', chatId: '@Farju_Tech_Studio' },
+    { name: 'Rashal Tech World', url: 'https://t.me/RashalTechWorld', chatId: '@RashalTechWorld' },
+    { name: 'RF2 SMM Official', url: 'https://t.me/RF2_SMM', chatId: '@RF2_SMM' },
+    { name: 'Farju SMM Panel', url: 'https://t.me/FARJU_SMM_PANAL', chatId: '@FARJU_SMM_PANAL' }
   ]);
   const [mandatoryChannelsEnabled, setMandatoryChannelsEnabled] = useState<boolean>(true);
   const [hasCompletedMandatoryJoin, setHasCompletedMandatoryJoin] = useState<boolean>(() => {
     return localStorage.getItem('smm_mandatory_channels_v2') === 'true';
   });
   const [joinedChannelIndexes, setJoinedChannelIndexes] = useState<number[]>([]);
+  const [verifiedChannelIndexes, setVerifiedChannelIndexes] = useState<number[]>([]);
+  const [userTgInputId, setUserTgInputId] = useState<string>(() => {
+    if (typeof window !== 'undefined' && (window as any).Telegram?.WebApp?.initDataUnsafe?.user?.id) {
+      return String((window as any).Telegram?.WebApp?.initDataUnsafe?.user?.id);
+    }
+    return localStorage.getItem('smm_user_tg_id') || '';
+  });
+  const [botVerifyLoading, setBotVerifyLoading] = useState<boolean>(false);
+  const [channelVerificationErrors, setChannelVerificationErrors] = useState<Record<number, string>>({});
 
-  const handleConfirmMandatoryChannelsJoin = async () => {
+  const verifyChannelsWithBot = async () => {
     haptic('heavy');
-    if (joinedChannelIndexes.length < mandatoryChannels.length) {
-      showToast('🛑 ৪ টি চ্যানেলেই জয়েন করা বাধ্যতামূলক! জয়েন না করলে অ্যাপ ব্যবহার করা যাবে না।', 'error');
+    const cleanTgId = userTgInputId.trim();
+    if (!cleanTgId) {
+      showToast('⚠️ মেম্বারশিপ চেক করার জন্য আপনার Telegram User ID দিন!', 'warning');
       haptic('error');
       return;
     }
-    setHasCompletedMandatoryJoin(true);
-    localStorage.setItem('smm_mandatory_channels_v2', 'true');
-    showToast('✅ ধন্যবাদ! আপনার টেলিগ্রাম চ্যানেল ভেরিফিকেশন সম্পন্ন হয়েছে।', 'success');
-    haptic('success');
 
-    if (currentUser?.uid) {
+    setBotVerifyLoading(true);
+    setChannelVerificationErrors({});
+    showToast('🔍 টেলিগ্রাম বট দ্বারা জয়েনিং ভেরিফাই করা হচ্ছে...', 'info');
+
+    const newVerified: number[] = [];
+    const errorsMap: Record<number, string> = {};
+
+    const token = tgBotToken.trim() || '8417495766:AAEupqJEr6_IyvOcGXhhdWStj95khUdr8MU';
+
+    for (let i = 0; i < mandatoryChannels.length; i++) {
+      const ch = mandatoryChannels[i];
+      let chatIdentifier = ch.chatId?.trim() || ch.url.trim();
+
+      if (chatIdentifier.includes('t.me/')) {
+        const match = chatIdentifier.match(/t\.me\/([a-zA-Z0-9_]+)/);
+        if (match && match[1]) {
+          chatIdentifier = '@' + match[1];
+        }
+      } else if (!chatIdentifier.startsWith('@') && !chatIdentifier.startsWith('-100')) {
+        chatIdentifier = '@' + chatIdentifier;
+      }
+
       try {
-        await updateDoc(doc(db, 'users', currentUser.uid), {
-          hasJoinedMandatoryChannels: true,
-          joinedChannelsAt: serverTimestamp()
-        });
-      } catch (_) {}
+        const apiUrl = `https://api.telegram.org/bot${token}/getChatMember?chat_id=${encodeURIComponent(chatIdentifier)}&user_id=${encodeURIComponent(cleanTgId.replace('@', ''))}`;
+        const res = await fetch(apiUrl);
+        const data = await res.json();
+
+        if (data && data.ok && data.result) {
+          const status = data.result.status;
+          if (['creator', 'administrator', 'member', 'restricted'].includes(status)) {
+            newVerified.push(i);
+          } else {
+            errorsMap[i] = 'আপনি এই চ্যানেলে জয়েন করেননি!';
+          }
+        } else {
+          const desc = data?.description || 'ভেরিফাই করা সম্ভব হয়নি';
+          if (desc.toLowerCase().includes('user not found') || desc.toLowerCase().includes('participant') || desc.toLowerCase().includes('member not found')) {
+            errorsMap[i] = 'মেম্বারশিপ খুঁজে পাওয়া যায়নি! চ্যানেলে জয়েন করুন।';
+          } else if (desc.toLowerCase().includes('integer') || desc.toLowerCase().includes('invalid user_id')) {
+            errorsMap[i] = 'মেম্বারশিপ চেকের জন্য সংখ্যাভিত্তিক Telegram User ID দিন (যেমন: 8479465879)';
+          } else {
+            errorsMap[i] = desc;
+          }
+        }
+      } catch (e: any) {
+        errorsMap[i] = 'নেটওয়ার্ক এরর!';
+      }
+    }
+
+    setVerifiedChannelIndexes(newVerified);
+    setJoinedChannelIndexes(newVerified);
+    setChannelVerificationErrors(errorsMap);
+    setBotVerifyLoading(false);
+
+    localStorage.setItem('smm_user_tg_id', cleanTgId);
+
+    if (newVerified.length === mandatoryChannels.length) {
+      setHasCompletedMandatoryJoin(true);
+      localStorage.setItem('smm_mandatory_channels_v2', 'true');
+      showToast('🎉 সফল হয়েছে! বট দ্বারা ৪টি চ্যানেলেই আপনার জয়েনিং ভেরিফাই করা হয়েছে।', 'success');
+      haptic('success');
+
+      if (currentUser?.uid) {
+        try {
+          await updateDoc(doc(db, 'users', currentUser.uid), {
+            hasJoinedMandatoryChannels: true,
+            joinedChannelsAt: serverTimestamp(),
+            telegramUserId: cleanTgId
+          });
+        } catch (_) {}
+      }
+    } else {
+      showToast(`🛑 ৪টির মধ্যে ${newVerified.length}টি চ্যানেল ভেরিফাইড। বাকি ${mandatoryChannels.length - newVerified.length}টিতে জয়েন করে আবার রিফ্রেশ করুন!`, 'error');
+      haptic('error');
     }
   };
 
@@ -4736,6 +4809,20 @@ export default function App() {
                                 }}
                               />
                             </div>
+                            <div>
+                              <label className="text-[10px] text-slate-400 block mb-0.5">Chat Username or ID (e.g. @Farju_Tech_Studio)</label>
+                              <input
+                                type="text"
+                                className="input-modern font-mono text-xs"
+                                placeholder="@username or -100xxx"
+                                value={ch.chatId || ''}
+                                onChange={(e) => {
+                                  const updated = [...mandatoryChannels];
+                                  updated[idx] = { ...updated[idx], chatId: e.target.value };
+                                  setMandatoryChannels(updated);
+                                }}
+                              />
+                            </div>
                           </div>
                         ))}
                       </div>
@@ -5954,9 +6041,9 @@ export default function App() {
           {/* MANDATORY 4 TELEGRAM CHANNELS JOIN OVERLAY */}
           {isLoggedIn && mandatoryChannelsEnabled && !hasCompletedMandatoryJoin && (
             <div className="fixed inset-0 z-[200] bg-slate-950/95 backdrop-blur-xl flex flex-col items-center justify-center p-4 animate-fade-in overflow-y-auto">
-              <div className="max-w-md w-full bg-slate-900 border border-sky-500/40 rounded-3xl p-6 shadow-2xl space-y-5 text-center my-auto">
+              <div className="max-w-md w-full bg-slate-900 border border-sky-500/40 rounded-3xl p-5 shadow-2xl space-y-4 text-center my-auto">
                 {/* Header Icon */}
-                <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-sky-500 via-blue-600 to-indigo-600 text-white flex items-center justify-center text-3xl mx-auto shadow-lg shadow-sky-500/30 animate-pulse">
+                <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-sky-500 via-blue-600 to-indigo-600 text-white flex items-center justify-center text-2xl mx-auto shadow-lg shadow-sky-500/30 animate-pulse">
                   <i className="fab fa-telegram-plane"></i>
                 </div>
 
@@ -5964,85 +6051,155 @@ export default function App() {
                   <h2 className="text-base font-black text-white flex items-center justify-center gap-2">
                     <span>📢 ৪ টি টেলিগ্রাম চ্যানেলে জয়েন করা বাধ্যতামূলক!</span>
                   </h2>
-                  <p className="text-xs text-sky-300/90 mt-1.5 leading-relaxed font-medium">
-                    অ্যাপের সেবাগুলো ব্যবহারের জন্য নিচের ৪টি চ্যানেলে জয়েন করা আবশ্যক। জয়েন শেষ করে কন্টিনিউ চাপুন।
+                  <p className="text-[11px] text-sky-300/90 mt-1 leading-relaxed font-medium">
+                    বট দ্বারা লাইভ মেম্বারশিপ চেক করা হবে। ৪টি চ্যানেলে জয়েন করে বট দিয়ে ভেরিফাই করুন।
+                  </p>
+                </div>
+
+                {/* User Telegram ID Input */}
+                <div className="bg-slate-950/80 p-3.5 rounded-2xl border border-sky-500/30 space-y-2 text-left">
+                  <div className="flex justify-between items-center text-xs">
+                    <label className="font-extrabold text-amber-400 flex items-center gap-1.5">
+                      <i className="fas fa-id-badge text-sky-400"></i>
+                      <span>Your Telegram User ID (আপনার টেলিগ্রাম আইডি)</span>
+                    </label>
+                    <a
+                      href="https://t.me/userinfobot"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-[10px] text-sky-400 hover:underline font-bold flex items-center gap-1"
+                    >
+                      <span>Find ID?</span>
+                      <i className="fas fa-external-link-alt text-[8px]"></i>
+                    </a>
+                  </div>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      className="input-modern text-xs font-mono pl-9"
+                      placeholder="e.g. 8479465879 or @username"
+                      value={userTgInputId}
+                      onChange={(e) => setUserTgInputId(e.target.value)}
+                    />
+                    <i className="fab fa-telegram text-sky-400 absolute left-3 top-3 text-xs"></i>
+                  </div>
+                  <p className="text-[10px] text-slate-400 leading-tight">
+                    💡 টেলিগ্রাম থেকে আইডি পেতে <a href="https://t.me/userinfobot" target="_blank" rel="noreferrer" className="text-amber-400 underline font-bold">@userinfobot</a> বা <a href="https://t.me/RF_SMM_PRO_BOT" target="_blank" rel="noreferrer" className="text-amber-400 underline font-bold">@RF_SMM_PRO_BOT</a> এ মেসেজ দিয়ে আইডি কপি করে নিন।
                   </p>
                 </div>
 
                 {/* Channel List */}
-                <div className="space-y-2.5 text-left">
+                <div className="space-y-2 text-left">
                   {mandatoryChannels.map((ch, idx) => {
+                    const isVerified = verifiedChannelIndexes.includes(idx);
                     const isClicked = joinedChannelIndexes.includes(idx);
+                    const err = channelVerificationErrors[idx];
+
                     return (
                       <div
                         key={idx}
-                        className={`p-3 rounded-2xl border transition flex items-center justify-between gap-2.5 ${
-                          isClicked
+                        className={`p-3 rounded-2xl border transition space-y-1.5 ${
+                          isVerified
                             ? 'bg-emerald-950/40 border-emerald-500/50 text-emerald-300'
+                            : err
+                            ? 'bg-rose-950/30 border-rose-500/40 text-rose-300'
+                            : isClicked
+                            ? 'bg-sky-950/30 border-sky-500/40 text-sky-300'
                             : 'bg-slate-800/80 border-white/10 text-white hover:border-sky-500/50'
                         }`}
                       >
-                        <div className="flex items-center gap-2.5 overflow-hidden">
-                          <div className={`w-8 h-8 rounded-xl flex items-center justify-center text-xs font-black shrink-0 ${
-                            isClicked ? 'bg-emerald-500/20 text-emerald-400' : 'bg-sky-500/20 text-sky-400'
-                          }`}>
-                            {isClicked ? <i className="fas fa-check"></i> : idx + 1}
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 overflow-hidden">
+                            <div className={`w-7 h-7 rounded-xl flex items-center justify-center text-xs font-black shrink-0 ${
+                              isVerified ? 'bg-emerald-500/20 text-emerald-400' : 'bg-sky-500/20 text-sky-400'
+                            }`}>
+                              {isVerified ? <i className="fas fa-check-double text-emerald-400"></i> : idx + 1}
+                            </div>
+                            <div className="truncate">
+                              <h4 className="font-extrabold text-xs text-white truncate flex items-center gap-1.5">
+                                <span>{ch.name || `Channel ${idx + 1}`}</span>
+                                {isVerified && (
+                                  <span className="text-[9px] bg-emerald-500/20 text-emerald-400 font-black px-1.5 py-0.5 rounded border border-emerald-500/30 shrink-0">
+                                    VERIFIED ✅
+                                  </span>
+                                )}
+                              </h4>
+                              <p className="text-[10px] text-sky-300/70 font-mono truncate">{ch.url}</p>
+                            </div>
                           </div>
-                          <div className="truncate">
-                            <h4 className="font-extrabold text-xs text-white truncate">{ch.name || `Channel ${idx + 1}`}</h4>
-                            <p className="text-[10px] text-sky-300/70 font-mono truncate">{ch.url}</p>
-                          </div>
+
+                          <a
+                            href={ch.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            onClick={() => {
+                              haptic('heavy');
+                              if (!joinedChannelIndexes.includes(idx)) {
+                                setJoinedChannelIndexes(prev => [...prev, idx]);
+                              }
+                            }}
+                            className={`px-3 py-1.5 rounded-xl text-xs font-black shrink-0 transition flex items-center gap-1 active:scale-95 ${
+                              isVerified
+                                ? 'bg-emerald-500 text-slate-950 hover:bg-emerald-400'
+                                : 'bg-sky-500 hover:bg-sky-400 text-slate-950 shadow-md shadow-sky-500/20'
+                            }`}
+                          >
+                            <span>{isVerified ? 'JOINED ✅' : 'JOIN (জয়েন)'}</span>
+                            <i className="fas fa-external-link-alt text-[9px]"></i>
+                          </a>
                         </div>
 
-                        <a
-                          href={ch.url}
-                          target="_blank"
-                          rel="noreferrer"
-                          onClick={() => {
-                            haptic('heavy');
-                            if (!joinedChannelIndexes.includes(idx)) {
-                              setJoinedChannelIndexes(prev => [...prev, idx]);
-                            }
-                          }}
-                          className={`px-3 py-1.5 rounded-xl text-xs font-black shrink-0 transition flex items-center gap-1 active:scale-95 ${
-                            isClicked
-                              ? 'bg-emerald-500 text-slate-950 hover:bg-emerald-400'
-                              : 'bg-sky-500 hover:bg-sky-400 text-slate-950 shadow-md shadow-sky-500/20'
-                          }`}
-                        >
-                          <span>{isClicked ? 'JOINED ✅' : 'JOIN (জয়েন)'}</span>
-                          <i className="fas fa-external-link-alt text-[9px]"></i>
-                        </a>
+                        {err && (
+                          <div className="text-[10px] text-rose-400 font-semibold bg-rose-950/60 p-1.5 rounded-lg border border-rose-500/20 flex items-center gap-1">
+                            <i className="fas fa-exclamation-circle text-rose-400"></i>
+                            <span>{err}</span>
+                          </div>
+                        )}
                       </div>
                     );
                   })}
                 </div>
 
-                {/* Progress Bar & Continue Button */}
-                <div className="pt-2 space-y-2.5">
+                {/* Progress Bar & Live Bot Verification Button */}
+                <div className="pt-1 space-y-2.5">
                   <div className="flex justify-between items-center text-[11px] font-bold text-slate-400 px-1">
-                    <span>জয়েন প্রোগ্রেস (Progress):</span>
-                    <span className="text-sky-400 font-extrabold">{joinedChannelIndexes.length} / {mandatoryChannels.length} Joined</span>
+                    <span>ভেরিফিকেশন স্ট্যাটাস:</span>
+                    <span className="text-sky-400 font-extrabold">
+                      {verifiedChannelIndexes.length} / {mandatoryChannels.length} Verified
+                    </span>
                   </div>
 
                   <button
-                    onClick={handleConfirmMandatoryChannelsJoin}
+                    onClick={verifyChannelsWithBot}
+                    disabled={botVerifyLoading}
                     className={`w-full py-3.5 rounded-2xl font-black text-xs uppercase tracking-wider transition active:scale-95 shadow-xl flex items-center justify-center gap-2 ${
-                      joinedChannelIndexes.length >= mandatoryChannels.length
-                        ? 'bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 shadow-emerald-500/30 cursor-pointer'
-                        : 'bg-slate-800 text-slate-400 border border-slate-700 hover:bg-slate-750 cursor-not-allowed'
+                      botVerifyLoading
+                        ? 'bg-slate-800 text-slate-400 cursor-wait'
+                        : verifiedChannelIndexes.length >= mandatoryChannels.length
+                        ? 'bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 shadow-emerald-500/30'
+                        : 'bg-gradient-to-r from-sky-600 via-blue-600 to-indigo-600 hover:from-sky-500 hover:to-indigo-500 text-white shadow-sky-500/30'
                     }`}
                   >
-                    <i className={joinedChannelIndexes.length >= mandatoryChannels.length ? "fas fa-check-circle text-sm text-slate-950" : "fas fa-lock text-sm text-amber-400"}></i>
-                    <span>
-                      {joinedChannelIndexes.length >= mandatoryChannels.length
-                        ? 'আমি ৪ টি চ্যানেলে জয়েন করেছি (CONTINUE TO APP)'
-                        : `🔒 ৪টি চ্যানেলেই জয়েন করা বাধ্যতামূলক (${joinedChannelIndexes.length}/${mandatoryChannels.length})`}
-                    </span>
+                    {botVerifyLoading ? (
+                      <>
+                        <i className="fas fa-spinner fa-spin text-sm"></i>
+                        <span>বট দিয়ে চেক করা হচ্ছে... (VERIFYING)</span>
+                      </>
+                    ) : verifiedChannelIndexes.length >= mandatoryChannels.length ? (
+                      <>
+                        <i className="fas fa-check-circle text-sm text-slate-950"></i>
+                        <span>সবগুলো ভেরিফাইড! অ্যাপে প্রবেশ করুন (CONTINUE TO APP)</span>
+                      </>
+                    ) : (
+                      <>
+                        <i className="fab fa-telegram-plane text-sm"></i>
+                        <span>🤖 VERIFY WITH TELEGRAM BOT (বট দিয়ে ভেরিফাই করুন)</span>
+                      </>
+                    )}
                   </button>
 
                   <p className="text-[10px] text-slate-500 italic">
-                    * চ্যানেলে জয়েন না থাকলে পরবর্তীতে সার্ভিস ব্যবহারে সমস্যা হতে পারে।
+                    * ৪টি চ্যানেলে জয়েনিং সম্পূর্ণ না থাকলে অ্যাপ ব্যবহার করা যাবে না।
                   </p>
                 </div>
               </div>
