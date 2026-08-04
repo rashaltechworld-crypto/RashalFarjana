@@ -206,11 +206,14 @@ export default function App() {
   const [isEditingName, setIsEditingName] = useState(false);
   const [profileSubmitting, setProfileSubmitting] = useState(false);
 
-  // Check if current logged in user is admin (rashal117)
+  // Check if current logged in user is admin (rashal117 / Rashal117)
   const isAdminUser = Boolean(
     currentUser && (
       currentUser.username?.toLowerCase() === 'rashal117' ||
-      currentUser.name?.toLowerCase() === 'rashal117'
+      currentUser.name?.toLowerCase() === 'rashal117' ||
+      currentUser.email?.toLowerCase() === 'rashal117' ||
+      currentUser.email?.toLowerCase() === 'rashal117@gmail.com' ||
+      currentUser.role === 'admin'
     )
   );
 
@@ -244,7 +247,7 @@ export default function App() {
   const [allDepositRequests, setAllDepositRequests] = useState<DepositRequest[]>([]);
 
   // Admin Manual Service Form & Control State
-  const [adminSubTab, setAdminSubTab] = useState<'users' | 'payment' | 'deposits' | 'orders' | 'services' | 'notifications' | 'links' | 'settings' | 'tasks'>('users');
+  const [adminSubTab, setAdminSubTab] = useState<'users' | 'spin' | 'daily' | 'ads' | 'promo' | 'payment' | 'deposits' | 'orders' | 'services' | 'notifications' | 'links' | 'settings' | 'tasks'>('users');
   const [paymentMethodsConfig, setPaymentMethodsConfig] = useState<
     Record<string, { label: string; number: string; icon: string; note?: string; isCrypto?: boolean }>
   >({
@@ -305,6 +308,763 @@ export default function App() {
   });
   const [botVerifyLoading, setBotVerifyLoading] = useState<boolean>(false);
   const [channelVerificationErrors, setChannelVerificationErrors] = useState<Record<number, string>>({});
+
+  // Periodic Channel Check Controls & State
+  const [periodicChannelCheckEnabled, setPeriodicChannelCheckEnabled] = useState<boolean>(true);
+  const [periodicChannelCheckInterval, setPeriodicChannelCheckInterval] = useState<number>(5); // minutes
+  const [lastChannelCheckTime, setLastChannelCheckTime] = useState<number>(() => {
+    const saved = localStorage.getItem('smm_last_ch_check_ts');
+    return saved ? parseInt(saved, 10) : Date.now();
+  });
+
+  // Daily Check-in State
+  const [dailyCheckInEnabled, setDailyCheckInEnabled] = useState<boolean>(true);
+  const [dailyCheckInReward, setDailyCheckInReward] = useState<number>(5.0);
+  const [lastDailyCheckInDate, setLastDailyCheckInDate] = useState<string>(() => {
+    return localStorage.getItem('smm_daily_checkin_' + (currentUser?.uid || 'guest')) || '';
+  });
+  const [dailyCheckInLoading, setDailyCheckInLoading] = useState<boolean>(false);
+
+  // Promo Code State
+  const [promoCodeEnabled, setPromoCodeEnabled] = useState<boolean>(true);
+  const [promoCodes, setPromoCodes] = useState<Array<{
+    id: string;
+    code: string;
+    reward: number;
+    maxUses: number;
+    usedCount: number;
+    usedByUsers: string[];
+  }>>([
+    { id: 'p1', code: 'WELCOME50', reward: 10, maxUses: 100, usedCount: 5, usedByUsers: [] },
+    { id: 'p2', code: 'FARJU100', reward: 20, maxUses: 50, usedCount: 2, usedByUsers: [] }
+  ]);
+  const [inputPromoCode, setInputPromoCode] = useState<string>('');
+  const [promoRedeemLoading, setPromoRedeemLoading] = useState<boolean>(false);
+
+  // Admin New Promo Code Form State
+  const [newPromoCode, setNewPromoCode] = useState<string>('');
+  const [newPromoReward, setNewPromoReward] = useState<string>('10');
+  const [newPromoMaxUses, setNewPromoMaxUses] = useState<string>('50');
+
+  // Ad Earn System State
+  const [adEarnEnabled, setAdEarnEnabled] = useState<boolean>(true);
+  const [adEarnRewardPerAd, setAdEarnRewardPerAd] = useState<number>(0);
+  const [adEarnDailyMaxLimit, setAdEarnDailyMaxLimit] = useState<number>(500);
+  const [adWatchLoading, setAdWatchLoading] = useState<boolean>(false);
+  const [showAdModal, setShowAdModal] = useState<boolean>(false);
+  const [adCountdown, setAdCountdown] = useState<number>(5);
+  const [adCanClaim, setAdCanClaim] = useState<boolean>(false);
+
+  useEffect(() => {
+    let timer: any = null;
+    if (showAdModal && adCountdown > 0) {
+      timer = setInterval(() => {
+        setAdCountdown((prev) => {
+          if (prev <= 1) {
+            clearInterval(timer);
+            setAdCanClaim(true);
+            haptic('medium');
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    }
+    return () => {
+      if (timer) clearInterval(timer);
+    };
+  }, [showAdModal, adCountdown]);
+
+  const getTodayAdStorageKey = () => {
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const userId = currentUser?.uid || 'guest';
+    return `smm_ads_watched_${todayStr}_${userId}`;
+  };
+
+  const [todayAdsWatchedCount, setTodayAdsWatchedCount] = useState<number>(() => {
+    const saved = localStorage.getItem(`smm_ads_watched_${new Date().toISOString().slice(0, 10)}_${currentUser?.uid || 'guest'}`);
+    return saved ? parseInt(saved, 10) : 0;
+  });
+
+  // Lucky Spin System State
+  const [luckySpinEnabled, setLuckySpinEnabled] = useState<boolean>(true);
+  const [luckySpinDailyMaxLimit, setLuckySpinDailyMaxLimit] = useState<number>(50);
+  const [isSpinning, setIsSpinning] = useState<boolean>(false);
+  const [wheelRotation, setWheelRotation] = useState<number>(0);
+  const [showSpinWinModal, setShowSpinWinModal] = useState<boolean>(false);
+  const [wonSpinAmount, setWonSpinAmount] = useState<number>(0);
+  const [spinRewardOptions] = useState<number[]>([
+    0.01, 0.05, 0.10, 0.20, 0.02, 0.50, 0.03, 1.00,
+    0.01, 0.25, 0.05, 0.15, 0.02, 0.30, 0.04, 0.10
+  ]);
+
+  const getTodaySpinStorageKey = () => {
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const userId = currentUser?.uid || 'guest';
+    return `smm_lucky_spin_${todayStr}_${userId}`;
+  };
+
+  const [todaySpinCount, setTodaySpinCount] = useState<number>(() => {
+    const saved = localStorage.getItem(`smm_lucky_spin_${new Date().toISOString().slice(0, 10)}_${currentUser?.uid || 'guest'}`);
+    return saved ? parseInt(saved, 10) : 0;
+  });
+
+  // VIP Gold Spin System State (Requirement: Wallet Balance >= 50 TK)
+  const [goldSpinEnabled, setGoldSpinEnabled] = useState<boolean>(true);
+  const [goldSpinMinBalance, setGoldSpinMinBalance] = useState<number>(50);
+  const [goldSpinDailyMaxLimit, setGoldSpinDailyMaxLimit] = useState<number>(20);
+  const [isGoldSpinning, setIsGoldSpinning] = useState<boolean>(false);
+  const [goldWheelRotation, setGoldWheelRotation] = useState<number>(0);
+  const [showGoldSpinWinModal, setShowGoldSpinWinModal] = useState<boolean>(false);
+  const [wonGoldSpinAmount, setWonGoldSpinAmount] = useState<number>(0);
+  const [goldSpinRewardOptions] = useState<number[]>([
+    0.10, 0.25, 0.50, 1.00, 0.15, 2.00, 0.30, 3.00,
+    0.20, 5.00, 0.40, 1.50, 0.10, 4.00, 0.50, 2.50
+  ]);
+
+  const getTodayGoldSpinStorageKey = () => {
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const userId = currentUser?.uid || 'guest';
+    return `smm_gold_spin_${todayStr}_${userId}`;
+  };
+
+  const [todayGoldSpinCount, setTodayGoldSpinCount] = useState<number>(() => {
+    const saved = localStorage.getItem(`smm_gold_spin_${new Date().toISOString().slice(0, 10)}_${currentUser?.uid || 'guest'}`);
+    return saved ? parseInt(saved, 10) : 0;
+  });
+
+  // Telegram Task Notification Helper (Daily Check-in, Promo Code, Ad Earn, Lucky Spin & Gold Spin live channel alert)
+  const sendTelegramTaskNotification = async (type: 'daily' | 'promo' | 'ad' | 'spin' | 'gold_spin', payload: {
+    userName: string;
+    userId: string;
+    reward: number;
+    code?: string;
+    usedCount?: number;
+    maxUses?: number;
+  }) => {
+    try {
+      const token = tgBotToken.trim() || '8417495766:AAEupqJEr6_IyvOcGXhhdWStj95khUdr8MU';
+      const ch1Id = tgChannel1Id.trim() || '-1003911086814';
+      const ch1Url = tgChannel1Url.trim() || 'https://t.me/RF2_SMM';
+      const ch2Id = tgChannel2Id.trim();
+      const ch2Url = tgChannel2Url.trim();
+      const miniApp = tgMiniAppUrl.trim() || 'https://t.me/RF_SMM_PRO_BOT?startapp=8479465879';
+
+      let textHtml = '';
+      if (type === 'daily') {
+        textHtml = `🎁 <b>DAILY CHECK-IN REWARD CLAIMED!</b>\n` +
+          `━━━━━━━━━━━━━━━━━━━\n` +
+          `👤 <b>User:</b> ${escapeHtml(payload.userName)}\n` +
+          `🆔 <b>User ID:</b> <code>${escapeHtml(payload.userId.slice(0, 8))}</code>\n` +
+          `💰 <b>Reward Bonus:</b> ৳ ${(payload.reward || 0).toFixed(2)}\n` +
+          `📅 <b>Date:</b> ${new Date().toLocaleDateString('en-BD')}\n` +
+          `━━━━━━━━━━━━━━━━━━━\n` +
+          `🎉 <i>Claim your free daily check-in bonus every 24 hours on our Mini App!</i>`;
+      } else if (type === 'promo') {
+        textHtml = `🎟️ <b>PROMO CODE REDEEMED!</b>\n` +
+          `━━━━━━━━━━━━━━━━━━━\n` +
+          `👤 <b>User:</b> ${escapeHtml(payload.userName)}\n` +
+          `🏷️ <b>Promo Code:</b> <code>${escapeHtml(payload.code || '')}</code>\n` +
+          `💰 <b>Reward Credited:</b> ৳ ${(payload.reward || 0).toFixed(2)}\n` +
+          (payload.maxUses ? `⚡ <b>Total Uses:</b> ${payload.usedCount || 1} / ${payload.maxUses}\n` : '') +
+          `━━━━━━━━━━━━━━━━━━━\n` +
+          `🚀 <i>Redeem active promo codes now on our Mini App!</i>`;
+      } else if (type === 'ad') {
+        textHtml = `📺 <b>AD EARN REWARD CLAIMED!</b>\n` +
+          `━━━━━━━━━━━━━━━━━━━\n` +
+          `👤 <b>User:</b> ${escapeHtml(payload.userName)}\n` +
+          `💰 <b>Ad Reward:</b> ৳ ${(payload.reward || 0).toFixed(2)}\n` +
+          `📊 <b>Today Ads Watched:</b> ${payload.usedCount || 1} / ${payload.maxUses || 500}\n` +
+          `━━━━━━━━━━━━━━━━━━━\n` +
+          `🎬 <i>Watch ads daily on our Mini App to earn free wallet balance!</i>`;
+      } else if (type === 'spin') {
+        textHtml = `🎡 <b>LUCKY SPIN REWARD WON!</b>\n` +
+          `━━━━━━━━━━━━━━━━━━━\n` +
+          `👤 <b>User:</b> ${escapeHtml(payload.userName)}\n` +
+          `💰 <b>Spin Win Reward:</b> ৳ ${(payload.reward || 0).toFixed(2)}\n` +
+          `📊 <b>Today Spins Completed:</b> ${payload.usedCount || 1} / ${payload.maxUses || 50}\n` +
+          `━━━━━━━━━━━━━━━━━━━\n` +
+          `🎲 <i>Spin the Lucky Wheel daily on our Mini App to win up to ৳ 1.00 per spin!</i>`;
+      } else if (type === 'gold_spin') {
+        textHtml = `🏆 <b>GOLD VIP SPIN REWARD WON!</b>\n` +
+          `━━━━━━━━━━━━━━━━━━━\n` +
+          `👤 <b>User:</b> ${escapeHtml(payload.userName)}\n` +
+          `👑 <b>VIP Status:</b> ৳ 50+ Balance Holder\n` +
+          `💰 <b>Gold Spin Win:</b> ৳ ${(payload.reward || 0).toFixed(2)}\n` +
+          `📊 <b>Today Gold Spins:</b> ${payload.usedCount || 1} / ${payload.maxUses || 20}\n` +
+          `━━━━━━━━━━━━━━━━━━━\n` +
+          `✨ <i>Keep ৳50+ balance in your wallet to unlock daily Gold Spins up to ৳ 5.00!</i>`;
+      }
+
+      const keyboardButtons: any[] = [
+        { text: '🚀 Open Mini App', url: miniApp },
+        { text: '📢 Channel 1', url: ch1Url }
+      ];
+      if (ch2Url) {
+        keyboardButtons.push({ text: '📢 Channel 2', url: ch2Url });
+      }
+
+      const postMsg = async (chatId: string) => {
+        const url = `https://api.telegram.org/bot${token}/sendMessage`;
+        try {
+          await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              chat_id: chatId,
+              text: textHtml,
+              parse_mode: 'HTML',
+              disable_web_page_preview: true,
+              reply_markup: { inline_keyboard: [keyboardButtons] }
+            })
+          });
+        } catch (_) {}
+      };
+
+      if (ch1Id) await postMsg(ch1Id);
+      if (ch2Id) await postMsg(ch2Id);
+    } catch (e) {
+      console.error('Task notification error:', e);
+    }
+  };
+
+  // Periodic Channel Check Timer Effect
+  useEffect(() => {
+    if (!isLoggedIn || !mandatoryChannelsEnabled || !periodicChannelCheckEnabled || !hasCompletedMandatoryJoin) {
+      return;
+    }
+
+    const intervalMs = (periodicChannelCheckInterval || 5) * 60 * 1000;
+
+    const timer = setInterval(() => {
+      const now = Date.now();
+      const elapsed = now - lastChannelCheckTime;
+
+      if (elapsed >= intervalMs) {
+        console.log(`Running ${periodicChannelCheckInterval}-minute periodic channel re-verification check...`);
+        setLastChannelCheckTime(now);
+        localStorage.setItem('smm_last_ch_check_ts', String(now));
+
+        const cleanTgId = userTgInputId.trim();
+        if (cleanTgId) {
+          // Silent auto re-verification via Bot API
+          autoReverifyChannels(cleanTgId);
+        } else {
+          // Prompt lock overlay if user ID is missing
+          setHasCompletedMandatoryJoin(false);
+          localStorage.removeItem('smm_mandatory_channels_v2');
+          showToast(`⏰ ${periodicChannelCheckInterval} মিনিট পরপর জয়েনিং রি-ভেরিফিকেশন আবশ্যক! টেলিগ্রাম আইডি দিয়ে পুনরায় চেক করুন।`, 'warning');
+        }
+      }
+    }, 15000); // Check timer every 15s
+
+    return () => clearInterval(timer);
+  }, [isLoggedIn, mandatoryChannelsEnabled, periodicChannelCheckEnabled, hasCompletedMandatoryJoin, lastChannelCheckTime, periodicChannelCheckInterval, userTgInputId]);
+
+  const autoReverifyChannels = async (tgId: string) => {
+    const token = tgBotToken.trim() || '8417495766:AAEupqJEr6_IyvOcGXhhdWStj95khUdr8MU';
+    let allJoined = true;
+    const verifiedIdxs: number[] = [];
+
+    for (let i = 0; i < mandatoryChannels.length; i++) {
+      const ch = mandatoryChannels[i];
+      let chatIdentifier = ch.chatId?.trim() || ch.url.trim();
+
+      if (chatIdentifier.includes('t.me/')) {
+        const match = chatIdentifier.match(/t\.me\/([a-zA-Z0-9_]+)/);
+        if (match && match[1]) chatIdentifier = '@' + match[1];
+      } else if (!chatIdentifier.startsWith('@') && !chatIdentifier.startsWith('-100')) {
+        chatIdentifier = '@' + chatIdentifier;
+      }
+
+      try {
+        const apiUrl = `https://api.telegram.org/bot${token}/getChatMember?chat_id=${encodeURIComponent(chatIdentifier)}&user_id=${encodeURIComponent(tgId.replace('@', ''))}`;
+        const res = await fetch(apiUrl);
+        const data = await res.json();
+
+        if (data && data.ok && data.result && ['creator', 'administrator', 'member', 'restricted'].includes(data.result.status)) {
+          verifiedIdxs.push(i);
+        } else {
+          allJoined = false;
+        }
+      } catch (_) {
+        // Network error - skip locking on network glitch
+      }
+    }
+
+    if (!allJoined || verifiedIdxs.length < mandatoryChannels.length) {
+      setHasCompletedMandatoryJoin(false);
+      localStorage.removeItem('smm_mandatory_channels_v2');
+      showToast('🛑 চ্যানেল লেফট করার কারণে অ্যাপ লক করা হয়েছে! ৪টি চ্যানেলে রি-জয়েন করে ভেরিফাই করুন।', 'error');
+      haptic('error');
+    } else {
+      setVerifiedChannelIndexes(verifiedIdxs);
+      setJoinedChannelIndexes(verifiedIdxs);
+    }
+  };
+
+  // Claim Daily Bonus Handler
+  const handleClaimDailyCheckIn = async () => {
+    haptic('heavy');
+    if (!dailyCheckInEnabled) {
+      showToast('⚠️ ডেইলি চেকিং বোনাস সিস্টেম সাময়িকভাবে বন্ধ আছে।', 'warning');
+      return;
+    }
+
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const userStorageKey = 'smm_daily_checkin_' + (currentUser?.uid || 'guest');
+    const userLastClaim = localStorage.getItem(userStorageKey) || lastDailyCheckInDate;
+
+    if (userLastClaim === todayStr) {
+      showToast('⚠️ আপনি আজকের ডেইলি বোনাস ইতিমধ্যে নিয়ে নিয়েছেন! আগামীকাল আবার ক্লেইম করতে পারবেন।', 'info');
+      haptic('warning');
+      return;
+    }
+
+    setDailyCheckInLoading(true);
+    try {
+      const rewardAmt = dailyCheckInReward || 5.0;
+      const newBal = (userBalance || 0) + rewardAmt;
+
+      setUserBalance(newBal);
+      setLastDailyCheckInDate(todayStr);
+      localStorage.setItem(userStorageKey, todayStr);
+
+      if (currentUser?.uid) {
+        await updateDoc(doc(db, 'users', currentUser.uid), {
+          balance: newBal,
+          lastDailyCheckInDate: todayStr
+        });
+      }
+
+      showToast(`🎉 অভিনন্দন! আপনি ৳ ${rewardAmt.toFixed(2)} ডেইলি চেক-ইন বোনাস পেয়েছেন!`, 'success');
+      haptic('success');
+
+      // Send live notification to Telegram channel
+      sendTelegramTaskNotification('daily', {
+        userName: currentUser?.name || currentUser?.username || 'User',
+        userId: currentUser?.uid || 'N/A',
+        reward: rewardAmt
+      });
+    } catch (err) {
+      console.error(err);
+      showToast('ভিজিটিং এরর! পুনরায় চেষ্টা করুন।', 'error');
+    } finally {
+      setDailyCheckInLoading(false);
+    }
+  };
+
+  // Redeem Promo Code Handler
+  const handleRedeemPromoCode = async () => {
+    haptic('heavy');
+    if (!promoCodeEnabled) {
+      showToast('⚠️ প্রোমো কোড রিডিম সিস্টেম এখন অফ আছে।', 'warning');
+      return;
+    }
+
+    const cleanCode = inputPromoCode.trim().toUpperCase();
+    if (!cleanCode) {
+      showToast('⚠️ অনুগ্রহ করে একটি প্রোমো কোড লিখুন!', 'warning');
+      haptic('error');
+      return;
+    }
+
+    setPromoRedeemLoading(true);
+
+    try {
+      const matchIndex = promoCodes.findIndex((p) => p.code.toUpperCase() === cleanCode);
+      if (matchIndex === -1) {
+        showToast('🛑 ভুল বা অবৈধ প্রোমো কোড!', 'error');
+        haptic('error');
+        setPromoRedeemLoading(false);
+        return;
+      }
+
+      const targetPromo = promoCodes[matchIndex];
+      const userId = currentUser?.uid || 'guest';
+
+      if (targetPromo.usedCount >= targetPromo.maxUses) {
+        showToast('🛑 এই প্রোমো কোডের ব্যবহারের লিমিট শেষ হয়ে গেছে!', 'error');
+        haptic('error');
+        setPromoRedeemLoading(false);
+        return;
+      }
+
+      if (targetPromo.usedByUsers?.includes(userId)) {
+        showToast('🛑 আপনি এই প্রোমো কোডটি ইতিমধ্যে ব্যবহার করে ফেলেছেন!', 'warning');
+        haptic('error');
+        setPromoRedeemLoading(false);
+        return;
+      }
+
+      // Valid! Credit balance
+      const rewardAmt = targetPromo.reward;
+      const newBal = (userBalance || 0) + rewardAmt;
+      const updatedUsedCount = targetPromo.usedCount + 1;
+      const updatedUsedUsers = [...(targetPromo.usedByUsers || []), userId];
+
+      setUserBalance(newBal);
+
+      const updatedPromoList = [...promoCodes];
+      updatedPromoList[matchIndex] = {
+        ...targetPromo,
+        usedCount: updatedUsedCount,
+        usedByUsers: updatedUsedUsers
+      };
+      setPromoCodes(updatedPromoList);
+      setInputPromoCode('');
+
+      if (currentUser?.uid) {
+        await updateDoc(doc(db, 'users', currentUser.uid), {
+          balance: newBal
+        });
+      }
+
+      showToast(`🎉 অভিনন্দন! ৳ ${rewardAmt.toFixed(2)} প্রোমো কোড বোনাস রিডিম সফল হয়েছে!`, 'success');
+      haptic('success');
+
+      // Send live notification to Telegram channel
+      sendTelegramTaskNotification('promo', {
+        userName: currentUser?.name || currentUser?.username || 'User',
+        userId: currentUser?.uid || 'N/A',
+        reward: rewardAmt,
+        code: targetPromo.code,
+        usedCount: updatedUsedCount,
+        maxUses: targetPromo.maxUses
+      });
+    } catch (e) {
+      console.error('Promo error:', e);
+      showToast('প্রোমো কোড রিডিম করতে সমস্যা হয়েছে!', 'error');
+    } finally {
+      setPromoRedeemLoading(false);
+    }
+  };
+
+  const handleCreatePromoCode = () => {
+    const codeStr = newPromoCode.trim().toUpperCase();
+    const rewardVal = parseFloat(newPromoReward) || 10;
+    const maxUsesVal = parseInt(newPromoMaxUses, 10) || 50;
+
+    if (!codeStr) {
+      showToast('⚠️ প্রোমো কোডের নাম লিখুন!', 'warning');
+      return;
+    }
+
+    if (promoCodes.some((p) => p.code.toUpperCase() === codeStr)) {
+      showToast('⚠️ এই নামে ইতিমধ্যে প্রোমো কোড আছে!', 'warning');
+      return;
+    }
+
+    const newObj = {
+      id: 'p_' + Date.now(),
+      code: codeStr,
+      reward: rewardVal,
+      maxUses: maxUsesVal,
+      usedCount: 0,
+      usedByUsers: []
+    };
+
+    setPromoCodes((prev) => [newObj, ...prev]);
+    setNewPromoCode('');
+    setNewPromoReward('10');
+    setNewPromoMaxUses('50');
+    showToast(`✅ নতুন প্রোমো কোড "${codeStr}" তৈরি হয়েছে!`, 'success');
+    haptic('success');
+  };
+
+  const handleDeletePromoCode = (id: string, code: string) => {
+    if (confirm(`আপনি কি সত্যিই "${code}" প্রোমো কোডটি ডিলিট করতে চান?`)) {
+      setPromoCodes((prev) => prev.filter((p) => p.id !== id));
+      showToast(`🗑️ "${code}" প্রোমো কোড মুছে ফেলা হয়েছে!`, 'info');
+      haptic('light');
+    }
+  };
+
+  const handleWatchAdEarn = async () => {
+    haptic('heavy');
+    if (!adEarnEnabled) {
+      showToast('⚠️ এড দেখে আয় করার অপশনটি এখন বন্ধ আছে।', 'warning');
+      return;
+    }
+
+    if (todayAdsWatchedCount >= adEarnDailyMaxLimit) {
+      showToast(`🛑 আপনি আজকের দৈনিক সর্বোচ্চ লিমিট (${adEarnDailyMaxLimit}টি এড) সম্পূর্ণ করে ফেলেছেন! আগামীকাল আবার এড দেখতে পারবেন।`, 'warning');
+      haptic('error');
+      return;
+    }
+
+    // 1. Ensure Monetag SDK script tag exists & trigger SDK function
+    try {
+      if (typeof (window as any).show_11498050 !== 'function') {
+        const existingScript = document.querySelector('script[data-zone="11498050"]');
+        if (!existingScript) {
+          const script = document.createElement('script');
+          script.src = 'https://libtl.com/sdk.js';
+          script.setAttribute('data-zone', '11498050');
+          script.setAttribute('data-sdk', 'show_11498050');
+          script.async = true;
+          document.head.appendChild(script);
+        }
+      }
+
+      // Trigger Monetag SDK Rewarded Interstitial
+      if (typeof (window as any).show_11498050 === 'function') {
+        try {
+          (window as any).show_11498050().then(() => {
+            console.log('Monetag ad finished showing');
+          }).catch((err: any) => {
+            console.log('Monetag ad error/closed:', err);
+          });
+        } catch (sdkErr) {
+          console.log('Ad SDK execution log:', sdkErr);
+        }
+      } else {
+        // Fallback open Monetag offer
+        window.open('https://alwingulla.com/', '_blank');
+      }
+    } catch (e) {
+      console.log('Ad setup check:', e);
+    }
+
+    // 3. Open Ad Player Modal & start 5s countdown
+    setShowAdModal(true);
+    setAdCountdown(5);
+    setAdCanClaim(false);
+  };
+
+  const handleClaimAdReward = async () => {
+    haptic('success');
+    setAdWatchLoading(true);
+
+    try {
+      const rewardAmt = adEarnRewardPerAd !== undefined ? adEarnRewardPerAd : 0;
+      const newBal = (userBalance || 0) + rewardAmt;
+      const newAdCount = todayAdsWatchedCount + 1;
+
+      setUserBalance(newBal);
+      setTodayAdsWatchedCount(newAdCount);
+      localStorage.setItem(getTodayAdStorageKey(), String(newAdCount));
+
+      if (currentUser?.uid) {
+        await updateDoc(doc(db, 'users', currentUser.uid), {
+          balance: newBal
+        });
+      }
+
+      await sendTelegramTaskNotification('ad', {
+        userName: userNameInput || currentUser?.displayName || 'User',
+        userId: currentUser?.uid || 'N/A',
+        reward: rewardAmt
+      });
+
+      showToast(`🎉 এড সফলভাবে সম্পন্ন হয়েছে! ৳ ${rewardAmt.toFixed(2)} ওয়ালেটে যোগ করা হয়েছে! (${newAdCount}/${adEarnDailyMaxLimit})`, 'success');
+      setShowAdModal(false);
+    } catch (e) {
+      console.error('Ad Claim Error:', e);
+      showToast('এড ক্লেইম করতে সমস্যা হয়েছে! আবার চেষ্টা করুন।', 'error');
+    } finally {
+      setAdWatchLoading(false);
+    }
+  };
+
+  const handleStartLuckySpin = async () => {
+    if (!luckySpinEnabled) {
+      showToast('⚠️ লকি স্পিন সিস্টেম সাময়িকভাবে বন্ধ রাখা হয়েছে।', 'error');
+      haptic('error');
+      return;
+    }
+
+    if (isSpinning) return;
+
+    if (todaySpinCount >= luckySpinDailyMaxLimit) {
+      showToast(`🛑 আপনি আজকের সর্বোচ্চ লিমিট (${luckySpinDailyMaxLimit}টি স্পিন) সম্পন্ন করে ফেলেছেন! আগামীকাল আবার চেষ্টা করুন।`, 'warning');
+      haptic('error');
+      return;
+    }
+
+    setIsSpinning(true);
+    haptic('heavy');
+
+    // Trigger Monetag Ad if available
+    try {
+      if (typeof (window as any).show_11498050 === 'function') {
+        (window as any).show_11498050().catch(() => {});
+      }
+    } catch (e) {
+      console.log('Ad trigger during spin:', e);
+    }
+
+    // Pick a reward segment using weighted probability (90% chance for 0.01 TK - 0.10 TK)
+    const segmentsCount = spinRewardOptions.length;
+    // 16 Slices & Weights:
+    // [0.01, 0.05, 0.10, 0.20, 0.02, 0.50, 0.03, 1.00, 0.01, 0.25, 0.05, 0.15, 0.02, 0.30, 0.04, 0.10]
+    const weights = [22, 16, 12, 6, 20, 2, 18, 0.5, 22, 5, 16, 8, 20, 4, 15, 12];
+    const totalWeight = weights.reduce((a, b) => a + b, 0);
+    let randomWeight = Math.random() * totalWeight;
+
+    let targetIdx = 0;
+    for (let i = 0; i < weights.length; i++) {
+      if (randomWeight < weights[i]) {
+        targetIdx = i;
+        break;
+      }
+      randomWeight -= weights[i];
+    }
+
+    const rewardAmt = spinRewardOptions[targetIdx];
+
+    // Calculate rotation angle so pointer at top (12 o'clock) points EXACTLY to targetIdx slice center
+    const sliceAngle = 360 / segmentsCount;
+    const targetAngle = (270 - targetIdx * sliceAngle + 360) % 360;
+    const extraRounds = 1800; // 5 full 360 rotations
+    const currentMod = wheelRotation % 360;
+    let diffAngle = targetAngle - currentMod;
+    if (diffAngle < 0) diffAngle += 360;
+    const nextRotation = wheelRotation + extraRounds + diffAngle;
+
+    setWheelRotation(nextRotation);
+
+    const vibInterval = setInterval(() => {
+      haptic('light');
+    }, 280);
+
+    setTimeout(async () => {
+      clearInterval(vibInterval);
+      setIsSpinning(false);
+      setWonSpinAmount(rewardAmt);
+      setShowSpinWinModal(true);
+      haptic('success');
+
+      const newCount = todaySpinCount + 1;
+      setTodaySpinCount(newCount);
+      localStorage.setItem(getTodaySpinStorageKey(), newCount.toString());
+
+      const newBal = (userBalance || 0) + rewardAmt;
+      setUserBalance(newBal);
+
+      if (currentUser?.uid) {
+        try {
+          await updateDoc(doc(db, 'users', currentUser.uid), {
+            balance: newBal
+          });
+        } catch (e) {
+          console.error('Update spin balance error:', e);
+        }
+      }
+
+      await sendTelegramTaskNotification('spin', {
+        userName: userNameInput || currentUser?.displayName || 'User',
+        userId: currentUser?.uid || 'N/A',
+        reward: rewardAmt,
+        usedCount: newCount,
+        maxUses: luckySpinDailyMaxLimit
+      });
+
+      showToast(`🎉 অভিনন্দন! স্পিন ক্লেইম করে ৳ ${rewardAmt.toFixed(2)} ওয়ালেটে যোগ হয়েছে!`, 'success');
+    }, 3500);
+  };
+
+  const handleStartGoldSpin = async () => {
+    if (!goldSpinEnabled) {
+      showToast('⚠️ গোল্ড স্পিন সিস্টেম সাময়িকভাবে বন্ধ রাখা হয়েছে।', 'error');
+      haptic('error');
+      return;
+    }
+
+    if ((userBalance || 0) < goldSpinMinBalance) {
+      showToast(`🔒 গোল্ড স্পিন আনলক করতে ওয়ালেটে নূন্যতম ৳ ${goldSpinMinBalance} ব্যালেন্স প্রয়োজন! আপনার ব্যালেন্স ৳ ${(userBalance || 0).toFixed(2)}`, 'warning');
+      haptic('error');
+      return;
+    }
+
+    if (isGoldSpinning) return;
+
+    if (todayGoldSpinCount >= goldSpinDailyMaxLimit) {
+      showToast(`🛑 আপনি আজকের গোল্ড স্পিন লিমিট (${goldSpinDailyMaxLimit}টি স্পিন) সম্পন্ন করে ফেলেছেন! আগামীকাল আবার চেষ্টা করুন।`, 'warning');
+      haptic('error');
+      return;
+    }
+
+    setIsGoldSpinning(true);
+    haptic('heavy');
+
+    // Trigger Monetag Ad if available
+    try {
+      if (typeof (window as any).show_11498050 === 'function') {
+        (window as any).show_11498050().catch(() => {});
+      }
+    } catch (e) {
+      console.log('Ad trigger during gold spin:', e);
+    }
+
+    // 16 Gold Spin Slices & Weights (85-90% win rate for 0.10 TK - 1.00 TK):
+    // [0.10, 0.25, 0.50, 1.00, 0.15, 2.00, 0.30, 3.00, 0.20, 5.00, 0.40, 1.50, 0.10, 4.00, 0.50, 2.50]
+    const segmentsCount = goldSpinRewardOptions.length;
+    const weights = [20, 15, 12, 8, 18, 3, 14, 1.5, 16, 0.5, 10, 4, 20, 1, 12, 2];
+    const totalWeight = weights.reduce((a, b) => a + b, 0);
+    let randomWeight = Math.random() * totalWeight;
+
+    let targetIdx = 0;
+    for (let i = 0; i < weights.length; i++) {
+      if (randomWeight < weights[i]) {
+        targetIdx = i;
+        break;
+      }
+      randomWeight -= weights[i];
+    }
+
+    const rewardAmt = goldSpinRewardOptions[targetIdx];
+
+    // Calculate rotation angle so pointer at top (12 o'clock) points EXACTLY to targetIdx slice center
+    const sliceAngle = 360 / segmentsCount;
+    const targetAngle = (270 - targetIdx * sliceAngle + 360) % 360;
+    const extraRounds = 1800; // 5 full 360 rotations
+    const currentMod = goldWheelRotation % 360;
+    let diffAngle = targetAngle - currentMod;
+    if (diffAngle < 0) diffAngle += 360;
+    const nextRotation = goldWheelRotation + extraRounds + diffAngle;
+
+    setGoldWheelRotation(nextRotation);
+
+    const vibInterval = setInterval(() => {
+      haptic('light');
+    }, 280);
+
+    setTimeout(async () => {
+      clearInterval(vibInterval);
+      setIsGoldSpinning(false);
+      setWonGoldSpinAmount(rewardAmt);
+      setShowGoldSpinWinModal(true);
+      haptic('success');
+
+      const newCount = todayGoldSpinCount + 1;
+      setTodayGoldSpinCount(newCount);
+      localStorage.setItem(getTodayGoldSpinStorageKey(), newCount.toString());
+
+      const newBal = (userBalance || 0) + rewardAmt;
+      setUserBalance(newBal);
+
+      if (currentUser?.uid) {
+        try {
+          await updateDoc(doc(db, 'users', currentUser.uid), {
+            balance: newBal
+          });
+        } catch (e) {
+          console.error('Update gold spin balance error:', e);
+        }
+      }
+
+      await sendTelegramTaskNotification('gold_spin', {
+        userName: userNameInput || currentUser?.displayName || 'User',
+        userId: currentUser?.uid || 'N/A',
+        reward: rewardAmt,
+        usedCount: newCount,
+        maxUses: goldSpinDailyMaxLimit
+      });
+
+      showToast(`🏆 অভিনন্দন! গোল্ড ভিআইপি স্পিন ক্লেইম করে ৳ ${rewardAmt.toFixed(2)} ওয়ালেটে যোগ হয়েছে!`, 'success');
+    }, 3500);
+  };
 
   const verifyChannelsWithBot = async () => {
     haptic('heavy');
@@ -2710,7 +3470,7 @@ export default function App() {
                         ? 'bg-gradient-to-r from-amber-500 to-orange-600 text-white border-amber-400 shadow-[0_0_15px_rgba(245,158,11,0.5)]'
                         : 'bg-amber-500/15 text-amber-300 border-amber-500/30 hover:bg-amber-500/25'
                     }`}
-                    title="Admin Panel (এডমিন প্যানেল)"
+                    title="Admin Panel"
                   >
                     <i className="fas fa-crown text-amber-400"></i>
                     <span>ADMIN</span>
@@ -3281,6 +4041,772 @@ export default function App() {
             </section>
           )}
 
+          {/* TASKS TAB */}
+          {activeTab === 'tasks' && (
+            <section className="px-5 mt-5 space-y-5">
+              <div className="p-5 rounded-3xl bg-gradient-to-r from-amber-950/70 via-yellow-900/50 to-slate-900 border border-amber-500/30 shadow-xl relative overflow-hidden">
+                <div className="absolute -right-6 -bottom-6 w-32 h-32 bg-amber-500/10 rounded-full blur-2xl pointer-events-none"></div>
+                <div className="flex items-center gap-3 mb-2">
+                  <div className="w-12 h-12 rounded-2xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 text-xl shadow-lg">
+                    <i className="fas fa-calendar-check"></i>
+                  </div>
+                  <div>
+                    <h2 className="text-base font-black text-white">Daily Rewards & Tasks (ডেইলি টাস্ক ও বোনাস)</h2>
+                    <p className="text-[11px] text-amber-200/80">প্রতিদিন অ্যাপ ওপেন করে ডেইলি বোনাস নিন এবং প্রোমো কোড রিডিম করুন!</p>
+                  </div>
+                </div>
+
+                {/* User Current Balance */}
+                <div className="mt-3 pt-3 border-t border-amber-500/20 flex items-center justify-between">
+                  <span className="text-[10px] font-bold text-slate-300 uppercase tracking-wider">আপনার বর্তমান ওয়ালেট ব্যালেন্স:</span>
+                  <span className="text-sm font-black text-amber-400 font-mono bg-black/40 px-3 py-1 rounded-xl border border-amber-500/30">
+                    ৳ {userBalance.toFixed(2)}
+                  </span>
+                </div>
+              </div>
+
+              {/* CARD 0-GOLD: VIP GOLD SPIN & WIN (গোল্ডেন লকি স্পিন) */}
+              <div className="glass-card p-5 space-y-4 border border-yellow-500/50 relative overflow-hidden bg-gradient-to-br from-yellow-950/60 via-amber-950/40 to-slate-900 shadow-2xl">
+                <div className="absolute top-0 right-0 bg-gradient-to-l from-yellow-500 via-amber-500 to-transparent text-slate-950 font-black text-[9px] px-3 py-1 rounded-bl-xl uppercase tracking-wider flex items-center gap-1 shadow-md">
+                  <i className="fas fa-crown"></i>
+                  <span>VIP ৳50+ BALANCE UNLOCKED</span>
+                </div>
+
+                <div className="flex items-center justify-between border-b border-yellow-500/20 pb-3 pt-2">
+                  <div className="flex items-center gap-3">
+                    <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-yellow-400 via-amber-500 to-yellow-600 text-slate-950 flex items-center justify-center text-xl font-black shadow-lg shadow-yellow-500/20 border border-yellow-300">
+                      <i className="fas fa-dharmachakra animate-spin-slow"></i>
+                    </div>
+                    <div>
+                      <h3 className="font-extrabold text-sm text-yellow-300 flex items-center gap-2">
+                        <span>Gold Spin & Win (গোল্ড স্পিন)</span>
+                        <span className="text-[9px] font-black bg-yellow-500/20 text-yellow-300 border border-yellow-500/40 px-2 py-0.5 rounded-md">
+                          0.10 TK - 5.00 TK
+                        </span>
+                      </h3>
+                      <p className="text-[10px] text-slate-300">
+                        যাদের একাউন্টে ৳ ৫০+ ব্যালেন্স থাকবে তারা পাবেন দৈনন্দিন গোল্ড স্পিন!
+                      </p>
+                    </div>
+                  </div>
+                  <span className="text-xs font-black text-yellow-300 font-mono bg-yellow-500/10 px-2.5 py-1 rounded-lg border border-yellow-500/30 shrink-0">
+                    ৳ 0.10 - ৳ 5.00
+                  </span>
+                </div>
+
+                {/* Admin Quick Shortcut Button for Gold Spin */}
+                {isAdminUser && (
+                  <button
+                    onClick={() => {
+                      setActiveTab('admin');
+                      setAdminSubTab('spin');
+                      showToast('⚙️ Gold VIP Spin Admin Controls Opened', 'info');
+                      haptic('light');
+                    }}
+                    className="w-full py-2 bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-300 border border-yellow-500/40 rounded-xl text-xs font-extrabold flex items-center justify-center gap-2 transition"
+                  >
+                    <i className="fas fa-crown text-yellow-400"></i>
+                    <span>Gold Spin Controls</span>
+                  </button>
+                )}
+
+                {/* Eligibility Lock Guard or Active Gold Spin Wheel */}
+                {userBalance < goldSpinMinBalance ? (
+                  /* Locked State View */
+                  <div className="bg-slate-950/90 border border-yellow-500/30 rounded-2xl p-4 sm:p-5 text-center space-y-3 relative overflow-hidden">
+                    <div className="w-12 h-12 rounded-2xl bg-yellow-500/20 border border-yellow-500/40 text-yellow-400 flex items-center justify-center text-xl mx-auto shadow-md">
+                      <i className="fas fa-lock text-yellow-400"></i>
+                    </div>
+
+                    <div className="space-y-1">
+                      <h4 className="font-extrabold text-xs text-yellow-300">
+                        🔒 গোল্ড স্পিন আনলক করতে ওয়ালেটে নূন্যতম ৳ {goldSpinMinBalance} প্রয়োজন!
+                      </h4>
+                      <p className="text-[11px] text-slate-300 max-w-sm mx-auto">
+                        আপনার একাউন্ট ব্যালেন্স ৳ ৫০ বা তার বেশি থাকলে আপনি প্রতিদিন সর্বমোট {goldSpinDailyMaxLimit}টি গোল্ড স্পিন পাবেন। প্রতিবার ৳ 0.10 থেকে ৳ 5.00 পর্যন্ত জেতার সুযোগ!
+                      </p>
+                    </div>
+
+                    {/* Balance Status Meter */}
+                    <div className="bg-black/50 p-3 rounded-xl border border-white/10 flex items-center justify-between text-xs font-bold max-w-xs mx-auto">
+                      <span className="text-slate-400">আপনার বর্তমান ব্যালেন্স:</span>
+                      <span className="text-amber-400 font-mono font-black">৳ {userBalance.toFixed(2)}</span>
+                    </div>
+
+                    <button
+                      onClick={() => {
+                        setActiveTab('deposit');
+                        showToast('💰 ডিপোজিট পেজে রিডাইরেক্ট করা হচ্ছে...', 'info');
+                        haptic('light');
+                      }}
+                      className="w-full sm:w-auto px-6 py-2.5 bg-gradient-to-r from-yellow-400 via-amber-400 to-yellow-500 hover:brightness-110 text-slate-950 font-black text-xs rounded-xl shadow-lg transition active:scale-95 inline-flex items-center justify-center gap-2"
+                    >
+                      <i className="fas fa-wallet text-sm"></i>
+                      <span>DEPOSIT NOW TO UNLOCK GOLD SPIN (ডিপোজিট করুন)</span>
+                    </button>
+                  </div>
+                ) : !goldSpinEnabled ? (
+                  <div className="p-4 rounded-2xl bg-red-950/30 border border-red-500/30 text-center text-red-300 text-xs font-bold">
+                    ⚠️ গোল্ড স্পিন সিস্টেম সাময়িকভাবে বন্ধ রয়েছে।
+                  </div>
+                ) : (
+                  /* Unlocked Gold Spin Wheel View */
+                  <div className="space-y-4">
+                    {/* Progress & Daily Limit */}
+                    <div className="p-3 rounded-2xl bg-slate-950/80 border border-yellow-500/30 flex items-center justify-between text-xs font-bold">
+                      <span className="text-yellow-200">আজকের গোল্ড স্পিন লিমিট:</span>
+                      <span className="text-yellow-400 font-mono">
+                        {todayGoldSpinCount} / {goldSpinDailyMaxLimit} Used
+                      </span>
+                    </div>
+
+                    {/* Gold Wheel Visual Container */}
+                    <div className="relative flex flex-col items-center justify-center py-2">
+                      {/* Pointer Arrow at top */}
+                      <div className="absolute top-0 z-20 text-yellow-400 text-3xl filter drop-shadow-[0_2px_8px_rgba(234,179,8,0.9)] -mb-2">
+                        <i className="fas fa-caret-down"></i>
+                      </div>
+
+                      {/* Circular Golden Wheel */}
+                      <div className="relative w-56 h-56 rounded-full border-4 border-yellow-400 shadow-[0_0_50px_rgba(234,179,8,0.45)] overflow-hidden bg-slate-950">
+                        <div
+                          className="w-full h-full rounded-full relative transition-transform duration-[3500ms] ease-[cubic-bezier(0.15,0.9,0.2,1)]"
+                          style={{
+                            transform: `rotate(${goldWheelRotation}deg)`
+                          }}
+                        >
+                          {/* SVG Gold Slices (16 Slices) */}
+                          <svg viewBox="0 0 100 100" className="w-full h-full" style={{ transform: 'rotate(-11.25deg)' }}>
+                            {[
+                              { label: '৳0.10', bg: '#d97706' },
+                              { label: '৳0.25', bg: '#ca8a04' },
+                              { label: '৳0.50', bg: '#eab308' },
+                              { label: '৳1.00', bg: '#f59e0b' },
+                              { label: '৳0.15', bg: '#b45309' },
+                              { label: '৳2.00', bg: '#facc15' },
+                              { label: '৳0.30', bg: '#854d0e' },
+                              { label: '৳3.00', bg: '#fbbf24' },
+                              { label: '৳0.20', bg: '#d97706' },
+                              { label: '৳5.00', bg: '#facc15' },
+                              { label: '৳0.40', bg: '#eab308' },
+                              { label: '৳1.50', bg: '#f59e0b' },
+                              { label: '৳0.10', bg: '#b45309' },
+                              { label: '৳4.00', bg: '#fbbf24' },
+                              { label: '৳0.50', bg: '#854d0e' },
+                              { label: '৳2.50', bg: '#ca8a04' }
+                            ].map((slice, idx) => {
+                              const angle = 22.5; // 360 / 16
+                              const startAngle = idx * angle;
+                              const endAngle = (idx + 1) * angle;
+                              const x1 = 50 + 50 * Math.cos((Math.PI * startAngle) / 180);
+                              const y1 = 50 + 50 * Math.sin((Math.PI * startAngle) / 180);
+                              const x2 = 50 + 50 * Math.cos((Math.PI * endAngle) / 180);
+                              const y2 = 50 + 50 * Math.sin((Math.PI * endAngle) / 180);
+                              const textAngle = startAngle + angle / 2;
+                              const textX = 50 + 34 * Math.cos((Math.PI * textAngle) / 180);
+                              const textY = 50 + 34 * Math.sin((Math.PI * textAngle) / 180);
+
+                              return (
+                                <g key={idx}>
+                                  <path
+                                    d={`M50,50 L${x1},${y1} A50,50 0 0,1 ${x2},${y2} Z`}
+                                    fill={slice.bg}
+                                    stroke="#0f172a"
+                                    strokeWidth="0.8"
+                                  />
+                                  <text
+                                    x={textX}
+                                    y={textY}
+                                    fill="#000000"
+                                    fontSize="4.2"
+                                    fontWeight="900"
+                                    textAnchor="middle"
+                                    dominantBaseline="middle"
+                                    transform={`rotate(${textAngle + 90}, ${textX}, ${textY})`}
+                                  >
+                                    {slice.label}
+                                  </text>
+                                </g>
+                              );
+                            })}
+                          </svg>
+                        </div>
+
+                        {/* Gold Wheel Center Cap */}
+                        <div className="absolute inset-0 m-auto w-12 h-12 rounded-full bg-gradient-to-br from-yellow-300 via-amber-400 to-yellow-600 border-2 border-white flex items-center justify-center shadow-lg text-slate-950 font-black text-xs z-10">
+                          <i className="fas fa-crown text-base text-slate-950"></i>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Gold Spin Button */}
+                    <button
+                      onClick={handleStartGoldSpin}
+                      disabled={isGoldSpinning || todayGoldSpinCount >= goldSpinDailyMaxLimit}
+                      className={`w-full py-4 rounded-2xl font-black text-xs sm:text-sm uppercase tracking-wider transition active:scale-95 flex items-center justify-center gap-2 shadow-xl ${
+                        todayGoldSpinCount >= goldSpinDailyMaxLimit
+                          ? 'bg-slate-800 text-slate-500 border border-white/5 cursor-not-allowed'
+                          : isGoldSpinning
+                          ? 'bg-amber-600 text-slate-950 cursor-wait'
+                          : 'bg-gradient-to-r from-yellow-400 via-amber-400 to-yellow-500 hover:brightness-110 text-slate-950 border border-yellow-300 shadow-yellow-500/30'
+                      }`}
+                    >
+                      {isGoldSpinning ? (
+                        <>
+                          <i className="fas fa-spinner fa-spin text-base"></i>
+                          <span>SPINNING GOLD WHEEL... (ঘুরছে...)</span>
+                        </>
+                      ) : todayGoldSpinCount >= goldSpinDailyMaxLimit ? (
+                        <>
+                          <i className="fas fa-check-double text-emerald-400"></i>
+                          <span>আজকের {goldSpinDailyMaxLimit}টি গোল্ড স্পিন সম্পন্ন হয়েছে</span>
+                        </>
+                      ) : (
+                        <>
+                          <i className="fas fa-crown text-slate-950 text-base"></i>
+                          <span>SPIN GOLD WHEEL NOW (গোল্ড স্পিন করুন)</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* CARD 0: LUCKY SPIN TASK (লকি স্পিন ও হুইল টাস্ক) */}
+              <div className="glass-card p-5 space-y-4 border border-amber-500/30 relative overflow-hidden bg-gradient-to-br from-amber-950/30 via-slate-900 to-purple-950/30 shadow-xl">
+                <div className="flex items-center justify-between border-b border-white/10 pb-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-amber-500/20 via-orange-500/20 to-purple-500/20 border border-amber-500/40 text-amber-400 flex items-center justify-center text-xl shadow-md">
+                      <i className="fas fa-dharmachakra animate-spin-slow"></i>
+                    </div>
+                    <div>
+                      <h3 className="font-extrabold text-sm text-white flex items-center gap-2">
+                        <span>Lucky Spin & Win (লকি স্পিন)</span>
+                        <span className="text-[9px] font-black bg-amber-500/20 text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded-md animate-pulse">
+                          INSTANT REWARD
+                        </span>
+                      </h3>
+                      <p className="text-[10px] text-slate-300">স্পিন করে প্রতিবার ৳ 0.01 থেকে ৳ 1.00 টাকা জিতে নিন!</p>
+                    </div>
+                  </div>
+                  <span className="text-xs font-black text-amber-300 font-mono bg-amber-500/10 px-2.5 py-1 rounded-lg border border-amber-500/20">
+                    ৳ 0.01 - ৳ 1.00
+                  </span>
+                </div>
+
+                {/* Admin Quick Shortcut Button */}
+                {isAdminUser && (
+                  <button
+                    onClick={() => {
+                      setActiveTab('admin');
+                      setAdminSubTab('spin');
+                      showToast('⚙️ Lucky Spin Admin Controls Opened', 'info');
+                      haptic('light');
+                    }}
+                    className="w-full py-2 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded-xl text-xs font-extrabold flex items-center justify-center gap-2 transition"
+                  >
+                    <i className="fas fa-cog text-amber-400"></i>
+                    <span>Lucky Spin Controls</span>
+                  </button>
+                )}
+
+                {luckySpinEnabled ? (
+                  <div className="space-y-4">
+                    {/* Progress & Daily Limit */}
+                    <div className="p-3 rounded-2xl bg-slate-950/80 border border-white/10 flex items-center justify-between text-xs font-bold">
+                      <span className="text-slate-300">আজকের স্পিন লিমিট:</span>
+                      <span className="text-amber-400 font-mono">
+                        {todaySpinCount} / {luckySpinDailyMaxLimit} Used
+                      </span>
+                    </div>
+
+                    {/* Wheel Visual Container */}
+                    <div className="relative flex flex-col items-center justify-center py-2">
+                      {/* Pointer Arrow at top */}
+                      <div className="absolute top-0 z-20 text-amber-400 text-3xl filter drop-shadow-[0_2px_8px_rgba(245,158,11,0.8)] -mb-2">
+                        <i className="fas fa-caret-down"></i>
+                      </div>
+
+                      {/* Circular Wheel */}
+                      <div className="relative w-56 h-56 rounded-full border-4 border-amber-400/60 shadow-[0_0_40px_rgba(245,158,11,0.35)] overflow-hidden bg-slate-950">
+                        <div
+                          className="w-full h-full rounded-full relative transition-transform duration-[3500ms] ease-[cubic-bezier(0.15,0.9,0.2,1)]"
+                          style={{
+                            transform: `rotate(${wheelRotation}deg)`
+                          }}
+                        >
+                          {/* SVG Slices (16 Slices) */}
+                          <svg viewBox="0 0 100 100" className="w-full h-full" style={{ transform: 'rotate(-11.25deg)' }}>
+                            {[
+                              { label: '৳0.01', bg: '#8b5cf6' },
+                              { label: '৳0.05', bg: '#ec4899' },
+                              { label: '৳0.10', bg: '#f59e0b' },
+                              { label: '৳0.20', bg: '#10b981' },
+                              { label: '৳0.02', bg: '#3b82f6' },
+                              { label: '৳0.50', bg: '#eab308' },
+                              { label: '৳0.03', bg: '#14b8a6' },
+                              { label: '৳1.00', bg: '#a855f7' },
+                              { label: '৳0.01', bg: '#06b6d4' },
+                              { label: '৳0.25', bg: '#f43f5e' },
+                              { label: '৳0.05', bg: '#84cc16' },
+                              { label: '৳0.15', bg: '#6366f1' },
+                              { label: '৳0.02', bg: '#d97706' },
+                              { label: '৳0.30', bg: '#ec4899' },
+                              { label: '৳0.04', bg: '#10b981' },
+                              { label: '৳0.10', bg: '#3b82f6' }
+                            ].map((slice, idx) => {
+                              const angle = 22.5; // 360 / 16
+                              const startAngle = idx * angle;
+                              const endAngle = (idx + 1) * angle;
+                              const x1 = 50 + 50 * Math.cos((Math.PI * startAngle) / 180);
+                              const y1 = 50 + 50 * Math.sin((Math.PI * startAngle) / 180);
+                              const x2 = 50 + 50 * Math.cos((Math.PI * endAngle) / 180);
+                              const y2 = 50 + 50 * Math.sin((Math.PI * endAngle) / 180);
+                              const textAngle = startAngle + angle / 2;
+                              const textX = 50 + 34 * Math.cos((Math.PI * textAngle) / 180);
+                              const textY = 50 + 34 * Math.sin((Math.PI * textAngle) / 180);
+
+                              return (
+                                <g key={idx}>
+                                  <path
+                                    d={`M50,50 L${x1},${y1} A50,50 0 0,1 ${x2},${y2} Z`}
+                                    fill={slice.bg}
+                                    stroke="#0f172a"
+                                    strokeWidth="0.8"
+                                  />
+                                  <text
+                                    x={textX}
+                                    y={textY}
+                                    fill="#ffffff"
+                                    fontSize="4.2"
+                                    fontWeight="900"
+                                    textAnchor="middle"
+                                    dominantBaseline="middle"
+                                    transform={`rotate(${textAngle + 90}, ${textX}, ${textY})`}
+                                  >
+                                    {slice.label}
+                                  </text>
+                                </g>
+                              );
+                            })}
+                          </svg>
+                        </div>
+
+                        {/* Wheel Center Button/Cap */}
+                        <div className="absolute inset-0 m-auto w-12 h-12 rounded-full bg-gradient-to-br from-amber-400 via-yellow-500 to-amber-600 border-2 border-white flex items-center justify-center shadow-lg text-slate-950 font-black text-xs z-10">
+                          <i className="fas fa-star text-base text-slate-950"></i>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Spin Button */}
+                    <button
+                      onClick={handleStartLuckySpin}
+                      disabled={isSpinning || todaySpinCount >= luckySpinDailyMaxLimit}
+                      className={`w-full py-4 rounded-2xl font-black text-xs sm:text-sm uppercase tracking-wider transition active:scale-95 flex items-center justify-center gap-2 shadow-xl ${
+                        todaySpinCount >= luckySpinDailyMaxLimit
+                          ? 'bg-slate-800 text-slate-500 border border-white/5 cursor-not-allowed'
+                          : isSpinning
+                          ? 'bg-amber-600 text-slate-950 cursor-wait'
+                          : 'bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500 hover:brightness-110 text-slate-950 border border-amber-300 shadow-amber-500/20'
+                      }`}
+                    >
+                      {isSpinning ? (
+                        <>
+                          <i className="fas fa-spinner fa-spin text-base"></i>
+                          <span>SPINNING WHEEL... (ঘুরছে...)</span>
+                        </>
+                      ) : todaySpinCount >= luckySpinDailyMaxLimit ? (
+                        <>
+                          <i className="fas fa-check-double text-emerald-400"></i>
+                          <span>আজকের {luckySpinDailyMaxLimit}টি স্পিন সম্পন্ন হয়েছে</span>
+                        </>
+                      ) : (
+                        <>
+                          <i className="fas fa-play text-slate-950 text-base"></i>
+                          <span>SPIN NOW & WIN (স্পিন করুন)</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="p-3.5 rounded-xl bg-red-500/10 border border-red-500/20 text-red-300 text-xs font-bold text-center">
+                    ⚠️ লকি স্পিন সিস্টেম সাময়িকভাবে বন্ধ আছে।
+                  </div>
+                )}
+              </div>
+
+              {/* CARD 1: DAILY CHECK-IN BONUS */}
+              <div className="glass-card p-5 space-y-4 border border-amber-500/20 relative overflow-hidden">
+                <div className="flex items-center justify-between border-b border-white/10 pb-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-500/20 to-yellow-500/20 border border-amber-500/30 text-amber-400 flex items-center justify-center text-base">
+                      <i className="fas fa-gift"></i>
+                    </div>
+                    <div>
+                      <h3 className="font-extrabold text-sm text-white">Daily Check-in Bonus (ডেইলি চেকিং বোনাস)</h3>
+                      <p className="text-[10px] text-slate-400">প্রতি ২৪ ঘণ্টায় একবার ফ্রিতে ডেইলি বোনাস ক্লেইম করুন</p>
+                    </div>
+                  </div>
+                  <span className="text-xs font-black text-emerald-400 font-mono bg-emerald-500/10 px-2.5 py-1 rounded-lg border border-emerald-500/20">
+                    +৳ {dailyCheckInReward.toFixed(2)}
+                  </span>
+                </div>
+
+                {dailyCheckInEnabled ? (
+                  <div>
+                    {(() => {
+                      const todayStr = new Date().toISOString().slice(0, 10);
+                      const userStorageKey = 'smm_daily_checkin_' + (currentUser?.uid || 'guest');
+                      const userLastClaim = localStorage.getItem(userStorageKey) || lastDailyCheckInDate;
+                      const isClaimedToday = userLastClaim === todayStr;
+
+                      return (
+                        <div className="space-y-3">
+                          <div className="p-3 rounded-2xl bg-slate-900/80 border border-white/5 flex items-center justify-between">
+                            <span className="text-xs font-bold text-slate-300">আজকের রিওয়ার্ড স্ট্যাটাস:</span>
+                            {isClaimedToday ? (
+                              <span className="text-[10px] font-black bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-2.5 py-1 rounded-full flex items-center gap-1">
+                                <i className="fas fa-check-circle"></i> Claimed Today
+                              </span>
+                            ) : (
+                              <span className="text-[10px] font-black bg-amber-500/20 text-amber-300 border border-amber-500/30 px-2.5 py-1 rounded-full animate-pulse flex items-center gap-1">
+                                <i className="fas fa-clock"></i> Available Now
+                              </span>
+                            )}
+                          </div>
+
+                          <button
+                            onClick={handleClaimDailyCheckIn}
+                            disabled={dailyCheckInLoading || isClaimedToday}
+                            className={`w-full py-3.5 rounded-2xl font-black text-xs uppercase tracking-wider transition active:scale-95 flex items-center justify-center gap-2 shadow-lg ${
+                              isClaimedToday
+                                ? 'bg-slate-800 text-slate-500 border border-white/5 cursor-not-allowed'
+                                : 'bg-gradient-to-r from-amber-500 via-yellow-500 to-amber-600 hover:brightness-110 text-black border border-amber-400/50'
+                            }`}
+                          >
+                            {dailyCheckInLoading ? (
+                              <>
+                                <i className="fas fa-spinner fa-spin"></i>
+                                <span>CLAIMING BONUS...</span>
+                              </>
+                            ) : isClaimedToday ? (
+                              <>
+                                <i className="fas fa-check-circle"></i>
+                                <span>আজকের বোনাস ক্লেইম করা সম্পন্ন হয়েছে</span>
+                              </>
+                            ) : (
+                              <>
+                                <i className="fas fa-hand-holding-dollar text-base"></i>
+                                <span>CLAIM DAILY BONUS (৳ {dailyCheckInReward.toFixed(2)})</span>
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                ) : (
+                  <div className="p-3.5 rounded-xl bg-red-500/10 border border-red-500/20 text-red-300 text-xs font-bold text-center">
+                    ⚠️ ডেইলি চেক-ইন বোনাস সাময়িকভাবে বন্ধ আছে।
+                  </div>
+                )}
+              </div>
+
+              {/* CARD 2: AD EARN SYSTEM */}
+              <div className="glass-card p-5 space-y-4 border border-purple-500/20 relative overflow-hidden">
+                <div className="flex items-center justify-between border-b border-white/10 pb-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-500/20 to-pink-500/20 border border-purple-500/30 text-purple-400 flex items-center justify-center text-base">
+                      <i className="fas fa-play-circle"></i>
+                    </div>
+                    <div>
+                      <h3 className="font-extrabold text-sm text-white">Watch Ads & Earn (এড দেখে আয় করুন)</h3>
+                      <p className="text-[10px] text-slate-400">প্রতিটি এড দেখলে ৳ {adEarnRewardPerAd.toFixed(2)} দেওয়া হবে (দৈনিক লিমিট: {adEarnDailyMaxLimit})</p>
+                    </div>
+                  </div>
+                  <span className="text-xs font-black text-amber-300 font-mono bg-amber-500/10 px-2.5 py-1 rounded-lg border border-amber-500/20">
+                    +৳ {adEarnRewardPerAd.toFixed(2)} / Ad
+                  </span>
+                </div>
+
+                {adEarnEnabled ? (
+                  <div className="space-y-3">
+                    <div className="p-3 rounded-2xl bg-slate-900/80 border border-white/5 space-y-2">
+                      <div className="flex items-center justify-between text-xs font-bold">
+                        <span className="text-slate-300">আজকের এড দেখার অগ্রগতি:</span>
+                        <span className="text-amber-400 font-mono">
+                          {todayAdsWatchedCount} / {adEarnDailyMaxLimit} Watched
+                        </span>
+                      </div>
+
+                      {/* Progress bar */}
+                      <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden border border-white/5">
+                        <div
+                          className="bg-gradient-to-r from-purple-500 via-pink-500 to-amber-500 h-2 transition-all duration-300"
+                          style={{
+                            width: `${Math.min(100, (todayAdsWatchedCount / (adEarnDailyMaxLimit || 500)) * 100)}%`
+                          }}
+                        ></div>
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={handleWatchAdEarn}
+                      disabled={adWatchLoading || todayAdsWatchedCount >= adEarnDailyMaxLimit}
+                      className={`w-full py-3.5 rounded-2xl font-black text-xs uppercase tracking-wider transition active:scale-95 flex items-center justify-center gap-2 shadow-lg ${
+                        todayAdsWatchedCount >= adEarnDailyMaxLimit
+                          ? 'bg-slate-800 text-slate-500 border border-white/5 cursor-not-allowed'
+                          : 'bg-gradient-to-r from-purple-600 via-pink-600 to-amber-500 hover:brightness-110 text-white border border-purple-400/50'
+                      }`}
+                    >
+                      {adWatchLoading ? (
+                        <>
+                          <i className="fas fa-spinner fa-spin"></i>
+                          <span>LOADING AD...</span>
+                        </>
+                      ) : todayAdsWatchedCount >= adEarnDailyMaxLimit ? (
+                        <>
+                          <i className="fas fa-check-double text-emerald-400"></i>
+                          <span>আজকের {adEarnDailyMaxLimit}টি এড দেখা সম্পন্ন হয়েছে</span>
+                        </>
+                      ) : (
+                        <>
+                          <i className="fas fa-play text-amber-300 text-sm"></i>
+                          <span>WATCH AD NOW (+৳ {adEarnRewardPerAd.toFixed(2)})</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="p-3.5 rounded-xl bg-red-500/10 border border-red-500/20 text-red-300 text-xs font-bold text-center">
+                    ⚠️ এড দেখে আয় করার সিস্টেম সাময়িকভাবে বন্ধ আছে।
+                  </div>
+                )}
+              </div>
+
+              {/* CARD 2: PROMO CODE REDEEM */}
+              <div className="glass-card p-5 space-y-4 border border-blue-500/20">
+                <div className="flex items-center gap-3 border-b border-white/10 pb-3">
+                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500/20 to-indigo-500/20 border border-blue-500/30 text-blue-400 flex items-center justify-center text-base">
+                    <i className="fas fa-ticket-alt"></i>
+                  </div>
+                  <div>
+                    <h3 className="font-extrabold text-sm text-white">Redeem Promo Code (প্রোমো কোড)</h3>
+                    <p className="text-[10px] text-slate-400">অফার কোড লিখে তাত্ক্ষণিক ফ্রি ব্যালেন্স যোগ করুন</p>
+                  </div>
+                </div>
+
+                {promoCodeEnabled ? (
+                  <div className="space-y-3">
+                    <div className="relative">
+                      <input
+                        type="text"
+                        className="input-modern uppercase font-mono text-amber-300 font-bold pl-10 pr-4 py-3"
+                        placeholder="ENTER PROMO CODE (যেমন: FARJU100)"
+                        value={inputPromoCode}
+                        onChange={(e) => setInputPromoCode(e.target.value.toUpperCase())}
+                      />
+                      <i className="fas fa-tags absolute left-3.5 top-3.5 text-slate-500 text-xs"></i>
+                    </div>
+
+                    <button
+                      onClick={handleRedeemPromoCode}
+                      disabled={promoRedeemLoading || !inputPromoCode.trim()}
+                      className="btn-primary-gradient w-full py-3 text-xs font-extrabold uppercase tracking-wider flex items-center justify-center gap-2"
+                    >
+                      {promoRedeemLoading ? (
+                        <>
+                          <i className="fas fa-spinner fa-spin"></i>
+                          <span>REDEEMING...</span>
+                        </>
+                      ) : (
+                        <>
+                          <i className="fas fa-bolt text-amber-300"></i>
+                          <span>REDEEM PROMO CODE</span>
+                        </>
+                      )}
+                    </button>
+
+                    <p className="text-[10px] text-slate-400 text-center">
+                      💡 প্রোমো কোড পেতে আমাদের অফিশিয়াল <a href={tgChannel1Url} target="_blank" rel="noreferrer" className="text-blue-400 font-bold underline">টেলিগ্রাম চ্যানেলে</a> চোখ রাখুন।
+                    </p>
+                  </div>
+                ) : (
+                  <div className="p-3.5 rounded-xl bg-red-500/10 border border-red-500/20 text-red-300 text-xs font-bold text-center">
+                    ⚠️ প্রোমো কোড রিডিম সিস্টেম সাময়িকভাবে বন্ধ আছে।
+                  </div>
+                )}
+              </div>
+
+              {/* CARD 3: MANDATORY 4 TELEGRAM CHANNELS VERIFICATION STATUS */}
+              <div className="glass-card p-5 space-y-3 border border-indigo-500/20">
+                <div className="flex items-center justify-between border-b border-white/10 pb-2.5">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-xl bg-blue-600/20 text-blue-400 border border-blue-500/30 flex items-center justify-center font-black text-xs">
+                      <i className="fab fa-telegram-plane"></i>
+                    </div>
+                    <div>
+                      <h4 className="font-extrabold text-xs text-white">Channel Membership Check (৪টি চ্যানেল ভেরিফিকেশন)</h4>
+                      <p className="text-[10px] text-slate-400">প্রতি ৫ মিনিট পরপর বট দ্বারা জয়েনিং রি-ভেরিফাই হয়</p>
+                    </div>
+                  </div>
+
+                  <span className="text-[10px] font-black text-emerald-400 bg-emerald-500/10 px-2.5 py-0.5 rounded-full border border-emerald-500/20">
+                    4/4 Active
+                  </span>
+                </div>
+
+                <div className="space-y-1.5">
+                  {mandatoryChannels.map((ch, idx) => (
+                    <div key={idx} className="flex items-center justify-between p-2 rounded-xl bg-slate-900/60 border border-white/5 text-xs">
+                      <div className="flex items-center gap-2">
+                        <i className="fas fa-check-circle text-emerald-400 text-xs"></i>
+                        <span className="font-bold text-white text-[11px]">{ch.name}</span>
+                      </div>
+                      <a
+                        href={ch.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-[10px] font-bold text-blue-400 hover:underline flex items-center gap-1"
+                      >
+                        <span>Visit Channel</span>
+                        <i className="fas fa-external-link-alt text-[8px]"></i>
+                      </a>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="pt-2">
+                  <button
+                    onClick={() => verifyChannelsWithBot()}
+                    disabled={botVerifyLoading}
+                    className="w-full py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-bold text-slate-200 border border-white/10 transition active:scale-95 flex items-center justify-center gap-2"
+                  >
+                    {botVerifyLoading ? (
+                      <i className="fas fa-spinner fa-spin text-amber-400"></i>
+                    ) : (
+                      <i className="fas fa-rotate text-amber-400"></i>
+                    )}
+                    <span>RE-VERIFY ALL CHANNELS NOW</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* CARD 4: CUSTOM TASKS LIST (নিচে টাস্ক সমূহ) */}
+              <div className="glass-card p-5 space-y-4 border border-amber-500/30 bg-slate-900/90 shadow-xl">
+                <div className="flex items-center justify-between border-b border-white/10 pb-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-2xl bg-amber-500/20 text-amber-400 flex items-center justify-center text-lg border border-amber-500/30">
+                      <i className="fas fa-tasks"></i>
+                    </div>
+                    <div>
+                      <h3 className="font-black text-sm text-white">Tasks List (টাস্ক সমূহ)</h3>
+                      <p className="text-[10px] text-slate-400">টাস্ক সম্পন্ন করে প্রুফ ও স্ক্রিনশট আপলোড করে ইনকাম বাড়ান</p>
+                    </div>
+                  </div>
+                  <span className="text-xs font-black text-amber-400 font-mono bg-amber-500/10 px-2.5 py-1 rounded-xl border border-amber-500/20">
+                    {customTasks.length} Active Tasks
+                  </span>
+                </div>
+
+                {/* Tasks List */}
+                <div className="space-y-3.5">
+                  {customTasks.map((task) => {
+                    const userSub = allTaskSubmissions.find(
+                      (s) => s.taskId === task.id && s.userId === currentUser?.uid
+                    );
+
+                    return (
+                      <div key={task.id} className="p-3.5 rounded-2xl bg-slate-950/80 border border-white/10 space-y-3">
+                        {/* Task Banner Image if provided by Admin */}
+                        {task.image && (
+                          <div
+                            onClick={() => setSelectedScreenshotPreview(task.image!)}
+                            className="w-full aspect-video rounded-xl overflow-hidden border border-amber-500/30 cursor-pointer group relative bg-black/60 shadow"
+                          >
+                            <img src={task.image} alt={task.title} className="w-full h-full object-cover group-hover:scale-105 transition" />
+                            <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 flex items-center justify-center transition">
+                              <i className="fas fa-search-plus text-white text-sm"></i>
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2.5">
+                            <div className="w-9 h-9 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center text-sm border border-amber-500/30 flex-shrink-0">
+                              <i className={task.icon || 'fas fa-tasks'}></i>
+                            </div>
+                            <div>
+                              <h4 className="font-extrabold text-xs text-white">{task.title}</h4>
+                              <p className="text-[10px] text-slate-400">{task.description}</p>
+                            </div>
+                          </div>
+                          <span className="text-xs font-black text-emerald-400 font-mono bg-emerald-500/10 px-2 py-0.5 rounded-lg border border-emerald-500/20 flex-shrink-0">
+                            +৳ {task.reward.toFixed(2)}
+                          </span>
+                        </div>
+
+                        {/* Task Action & Proof Status */}
+                        <div className="flex flex-wrap gap-2 pt-1 border-t border-white/5">
+                          {task.link && task.link !== '#' && (
+                            <a
+                              href={task.link}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="px-3 py-2 rounded-xl bg-sky-600/30 hover:bg-sky-600/50 text-sky-300 text-[11px] font-extrabold flex items-center justify-center gap-1.5 border border-sky-500/30"
+                            >
+                              <i className="fas fa-external-link-alt text-[10px]"></i> VISIT LINK
+                            </a>
+                          )}
+
+                          {userSub ? (
+                            <div className="flex-1 flex items-center justify-end">
+                              {userSub.status === 'Approved' && (
+                                <span className="w-full py-2 rounded-xl bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[11px] font-extrabold text-center flex items-center justify-center gap-1.5">
+                                  <i className="fas fa-check-circle text-emerald-400"></i> APPROVED & REWARDED 🎉
+                                </span>
+                              )}
+                              {userSub.status === 'Pending' && (
+                                <span className="w-full py-2 rounded-xl bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[11px] font-extrabold text-center flex items-center justify-center gap-1.5 animate-pulse">
+                                  <i className="fas fa-clock text-amber-400"></i> যাঁচাই চলছে (PENDING REVIEW)
+                                </span>
+                              )}
+                              {userSub.status === 'Rejected' && (
+                                <button
+                                  onClick={() => {
+                                    setSelectedTaskForProof(task);
+                                    setTaskProofNotes('');
+                                    setTaskProofScreenshots([]);
+                                  }}
+                                  className="w-full py-2 rounded-xl bg-red-600/20 hover:bg-red-600/40 text-red-300 border border-red-500/30 text-[11px] font-extrabold flex items-center justify-center gap-1.5 transition active:scale-95"
+                                >
+                                  <i className="fas fa-redo"></i> RE-SUBMIT PROOF (REJECTED)
+                                </button>
+                              )}
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => {
+                                setSelectedTaskForProof(task);
+                                setTaskProofNotes('');
+                                setTaskProofScreenshots([]);
+                              }}
+                              className="flex-1 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-yellow-600 hover:from-amber-400 hover:to-yellow-500 text-black text-[11px] font-black flex items-center justify-center gap-1.5 shadow-md active:scale-95 transition"
+                            >
+                              <i className="fas fa-camera"></i>
+                              <span>প্রুফ ও স্ক্রিনশট দিন (SUBMIT PROOF)</span>
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </section>
+          )}
+
           {/* FUNDS TAB */}
           {activeTab === 'funds' && (
             <section className="px-5 mt-5">
@@ -3820,6 +5346,33 @@ export default function App() {
                 </div>
               </div>
 
+              {/* ADMIN PANEL DIRECT LAUNCH CARD (ADMIN ONLY) */}
+              {isAdminUser && (
+                <div className="p-4 rounded-2xl bg-gradient-to-r from-amber-950/80 via-yellow-900/60 to-slate-900 border border-amber-500/40 shadow-lg space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-10 h-10 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center justify-center text-base font-black">
+                        <i className="fas fa-crown"></i>
+                      </div>
+                      <div>
+                        <h4 className="font-extrabold text-xs text-white">Admin Panel</h4>
+                        <p className="text-[10px] text-slate-300">সকল কন্ট্রোল, ডেইলি চেকিং, প্রোমো কোড ও ইউজার ম্যানেজ করুন</p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => {
+                        setActiveTab('admin');
+                        haptic('heavy');
+                      }}
+                      className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 hover:brightness-110 text-white font-extrabold text-xs shadow-md transition active:scale-95 flex items-center gap-1.5"
+                    >
+                      <span>OPEN ADMIN</span>
+                      <i className="fas fa-arrow-right text-[10px]"></i>
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {/* Logout Button */}
               <button
                 onClick={handleLogout}
@@ -3890,6 +5443,10 @@ export default function App() {
               <div className="flex overflow-x-auto gap-2 p-1.5 bg-slate-900/90 rounded-2xl border border-white/10 mb-5 scrollbar-none">
                 {[
                   { id: 'users', label: 'Users & Balance', icon: 'fas fa-users' },
+                  { id: 'spin', label: 'Lucky Spin (লকি স্পিন)', icon: 'fas fa-dharmachakra' },
+                  { id: 'daily', label: 'Daily Bonus (ডেইলি বোনাস)', icon: 'fas fa-gift' },
+                  { id: 'ads', label: 'Watch Ads & Earn (এড দেখে আয়)', icon: 'fas fa-play-circle' },
+                  { id: 'promo', label: 'Promo Code (প্রোমো কোড)', icon: 'fas fa-ticket-alt' },
                   { id: 'payment', label: 'Payment Numbers', icon: 'fas fa-mobile-alt' },
                   { id: 'deposits', label: 'Deposit Requests', icon: 'fas fa-wallet' },
                   { id: 'orders', label: 'Orders Control', icon: 'fas fa-list-check' },
@@ -4034,6 +5591,792 @@ export default function App() {
                           </div>
                         );
                       })}
+                  </div>
+                </div>
+              )}
+
+              {/* SUB TAB: LUCKY SPIN SYSTEM MANAGEMENT (লকি স্পিন কন্ট্রোল) */}
+              {adminSubTab === 'spin' && (
+                <div className="space-y-4">
+                  {/* Header Banner & System Toggle */}
+                  <div className="p-4 rounded-2xl bg-gradient-to-r from-amber-950/70 via-purple-950/60 to-slate-900 border border-amber-500/40 shadow-lg space-y-3">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div className="flex items-center gap-3">
+                        <div className="w-11 h-11 rounded-2xl bg-amber-500/20 border border-amber-500/40 text-amber-400 flex items-center justify-center text-xl font-black shadow-md">
+                          <i className="fas fa-dharmachakra"></i>
+                        </div>
+                        <div>
+                          <h3 className="font-extrabold text-sm text-white">Lucky Spin System (লকি স্পিন কন্ট্রোল)</h3>
+                          <p className="text-[11px] text-slate-300">স্পিন হুইল দিয়ে ব্যবহারকারীদের রিওয়ার্ড (৳0.01 - ৳1.00) অন/অফ ও দৈনিক স্পিন লিমিট নির্ধারণ করুন</p>
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={() => {
+                          setLuckySpinEnabled(!luckySpinEnabled);
+                          showToast(
+                            luckySpinEnabled
+                              ? '🔴 লকি স্পিন সিস্টেম বন্ধ করা হয়েছে'
+                              : '🟢 লকি স্পিন সিস্টেম চালু করা হয়েছে',
+                            'info'
+                          );
+                          haptic('heavy');
+                        }}
+                        className={`px-4 py-2.5 rounded-xl font-extrabold text-xs transition border flex items-center gap-2 shadow-md ${
+                          luckySpinEnabled
+                            ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40 hover:bg-emerald-500/30'
+                            : 'bg-red-500/20 text-red-400 border-red-500/40 hover:bg-red-500/30'
+                        }`}
+                      >
+                        <i className={`fas ${luckySpinEnabled ? 'fa-check-circle' : 'fa-times-circle'}`}></i>
+                        <span>{luckySpinEnabled ? 'SPIN SYSTEM ON (চালু)' : 'SPIN SYSTEM OFF (বন্ধ)'}</span>
+                      </button>
+                    </div>
+
+                    {/* Quick Stats Grid */}
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 pt-2">
+                      <div className="bg-black/30 p-3 rounded-xl border border-white/5">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase block">Reward Range per Spin</span>
+                        <span className="text-base font-black text-amber-400 font-mono">৳ 0.01 - ৳ 1.00</span>
+                      </div>
+                      <div className="bg-black/30 p-3 rounded-xl border border-white/5">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase block">Spin Status</span>
+                        <span className={`text-xs font-black uppercase ${luckySpinEnabled ? 'text-emerald-400' : 'text-red-400'}`}>
+                          {luckySpinEnabled ? 'Active (চালু)' : 'Disabled (বন্ধ)'}
+                        </span>
+                      </div>
+                      <div className="bg-black/30 p-3 rounded-xl border border-white/5 col-span-2 sm:col-span-1">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase block">Daily Spin Limit</span>
+                        <span className="text-base font-black text-purple-400 font-mono">{luckySpinDailyMaxLimit} Spins/Day</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Daily Spin Max Limit Config */}
+                  <div className="bg-slate-900/90 border border-amber-500/30 rounded-2xl p-4 sm:p-5 space-y-4 shadow-xl">
+                    <div className="flex items-center gap-2 border-b border-white/10 pb-3">
+                      <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center justify-center text-sm font-bold">
+                        <i className="fas fa-cog"></i>
+                      </div>
+                      <div>
+                        <h4 className="font-extrabold text-xs text-white">Regular Daily Spin Limit Configuration (ডেইলি স্পিন লিমিট)</h4>
+                        <p className="text-[10px] text-slate-400">সাধারণ ব্যবহারকারীদের জন্য প্রতিদিন সর্বমোট কতবার স্পিন করতে পারবেন তা সেট করুন</p>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold text-slate-300">দৈনিক সর্বোচ্চ স্পিন সংখ্যা (Max Spins / Day):</label>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="number"
+                          min="1"
+                          max="1000"
+                          className="input-modern text-xs font-mono font-bold text-purple-300 py-2.5 px-3"
+                          value={luckySpinDailyMaxLimit}
+                          onChange={(e) => setLuckySpinDailyMaxLimit(Math.max(1, parseInt(e.target.value) || 1))}
+                        />
+                        <button
+                          onClick={() => {
+                            showToast(`✅ দৈনিক সর্বোচ্চ স্পিন লিমিট ${luckySpinDailyMaxLimit}টি আপডেট হয়েছে!`, 'success');
+                            haptic('success');
+                          }}
+                          className="px-4 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:brightness-110 text-white font-extrabold text-xs rounded-xl shadow-md transition active:scale-95 shrink-0"
+                        >
+                          UPDATE LIMIT
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Preset Rewards Preview */}
+                    <div className="pt-2 border-t border-white/10 space-y-2">
+                      <span className="text-xs font-bold text-slate-300 block">সাধারণ স্পিন হুইলের প্রিসেট পুরষ্কারসমূহ (0.01 TK - 1 TK):</span>
+                      <div className="grid grid-cols-4 sm:grid-cols-8 gap-2">
+                        {spinRewardOptions.map((amt, idx) => (
+                          <div key={idx} className="bg-slate-950 p-2 rounded-xl border border-amber-500/30 text-center">
+                            <span className="text-[9px] text-slate-400 block">Slice #{idx + 1}</span>
+                            <span className="text-xs font-black text-amber-400 font-mono">৳{amt.toFixed(2)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* GOLD SPIN SYSTEM MANAGEMENT (গোল্ডেন লকি স্পিন কন্ট্রোল) */}
+                  <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-yellow-950/80 via-amber-950/70 to-slate-900 border border-yellow-500/50 shadow-xl space-y-4">
+                    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-3">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-yellow-400 to-amber-500 text-slate-950 flex items-center justify-center text-lg font-black shadow-lg">
+                          <i className="fas fa-crown"></i>
+                        </div>
+                        <div>
+                          <h4 className="font-extrabold text-sm text-yellow-300 flex items-center gap-2">
+                            <span>VIP Gold Spin System (গোল্ড স্পিন কন্ট্রোল)</span>
+                            <span className="text-[9px] font-bold bg-yellow-500/20 text-yellow-300 border border-yellow-500/40 px-2 py-0.5 rounded-md">
+                              ৳0.10 - ৳5.00 TK
+                            </span>
+                          </h4>
+                          <p className="text-[10px] text-slate-300">যাদের ওয়ালেটে ৫০+ টাকা থাকবে তাদের জন্য গোল্ড স্পিন অন/অফ, ব্যালেন্স রিকোয়ারমেন্ট ও লিমিট সেট করুন</p>
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={() => {
+                          setGoldSpinEnabled(!goldSpinEnabled);
+                          showToast(
+                            goldSpinEnabled
+                              ? '🔴 গোল্ড স্পিন সিস্টেম বন্ধ করা হয়েছে'
+                              : '🟢 গোল্ড স্পিন সিস্টেম চালু করা হয়েছে',
+                            'info'
+                          );
+                          haptic('heavy');
+                        }}
+                        className={`px-4 py-2 rounded-xl font-extrabold text-xs transition border flex items-center gap-2 shadow-md ${
+                          goldSpinEnabled
+                            ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40 hover:bg-emerald-500/30'
+                            : 'bg-red-500/20 text-red-400 border-red-500/40 hover:bg-red-500/30'
+                        }`}
+                      >
+                        <i className={`fas ${goldSpinEnabled ? 'fa-check-circle' : 'fa-times-circle'}`}></i>
+                        <span>{goldSpinEnabled ? 'GOLD SPIN ON' : 'GOLD SPIN OFF'}</span>
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      {/* Min Balance Requirement */}
+                      <div className="space-y-1.5 bg-black/40 p-3.5 rounded-xl border border-yellow-500/30">
+                        <label className="text-xs font-extrabold text-yellow-300 block">
+                          গোল্ড স্পিন আনলক মিনিমাম ব্যালেন্স (Min Balance Req):
+                        </label>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="number"
+                            min="0"
+                            className="input-modern text-xs font-mono font-bold text-yellow-300 py-2 px-3"
+                            value={goldSpinMinBalance}
+                            onChange={(e) => setGoldSpinMinBalance(Math.max(0, parseFloat(e.target.value) || 0))}
+                          />
+                          <button
+                            onClick={() => {
+                              showToast(`✅ গোল্ড স্পিন মিনিমাম ব্যালেন্স ৳ ${goldSpinMinBalance} সেট হয়েছে!`, 'success');
+                              haptic('success');
+                            }}
+                            className="px-3 py-2 bg-yellow-500 text-slate-950 hover:bg-yellow-400 font-extrabold text-xs rounded-xl shadow transition active:scale-95 shrink-0"
+                          >
+                            SET TK
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Daily Gold Spin Limit */}
+                      <div className="space-y-1.5 bg-black/40 p-3.5 rounded-xl border border-yellow-500/30">
+                        <label className="text-xs font-extrabold text-yellow-300 block">
+                          দৈনিক সর্বোচ্চ গোল্ড স্পিন সংখ্যা (Daily Limit):
+                        </label>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="number"
+                            min="1"
+                            max="1000"
+                            className="input-modern text-xs font-mono font-bold text-yellow-300 py-2 px-3"
+                            value={goldSpinDailyMaxLimit}
+                            onChange={(e) => setGoldSpinDailyMaxLimit(Math.max(1, parseInt(e.target.value) || 1))}
+                          />
+                          <button
+                            onClick={() => {
+                              showToast(`✅ দৈনিক গোল্ড স্পিন লিমিট ${goldSpinDailyMaxLimit}টি সেট হয়েছে!`, 'success');
+                              haptic('success');
+                            }}
+                            className="px-3 py-2 bg-yellow-500 text-slate-950 hover:bg-yellow-400 font-extrabold text-xs rounded-xl shadow transition active:scale-95 shrink-0"
+                          >
+                            SET LIMIT
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Gold Slices Preview */}
+                    <div className="pt-2 border-t border-yellow-500/20 space-y-2">
+                      <span className="text-xs font-bold text-yellow-200 block">
+                        গোল্ডেন স্পিন হুইল প্রিসেট পুরষ্কার (৳0.10 - ৳5.00 TK | 0.10-1.00 TK বেশি জয়ী):
+                      </span>
+                      <div className="grid grid-cols-4 sm:grid-cols-8 gap-2">
+                        {goldSpinRewardOptions.map((amt, idx) => (
+                          <div key={idx} className="bg-slate-950 p-2 rounded-xl border border-yellow-500/40 text-center">
+                            <span className="text-[9px] text-yellow-300/70 block">Slice #{idx + 1}</span>
+                            <span className="text-xs font-black text-yellow-400 font-mono">৳{amt.toFixed(2)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* SUB TAB: DAILY CHECK-IN BONUS MANAGEMENT (ডেইলি চেক-ইন বোনাস কন্ট্রোল) */}
+              {adminSubTab === 'daily' && (
+                <div className="space-y-4">
+                  {/* Header Banner & System Toggle */}
+                  <div className="p-4 rounded-2xl bg-gradient-to-r from-amber-950/70 via-yellow-900/50 to-slate-900 border border-amber-500/40 shadow-lg space-y-3">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div className="flex items-center gap-3">
+                        <div className="w-11 h-11 rounded-2xl bg-amber-500/20 border border-amber-500/40 text-amber-400 flex items-center justify-center text-xl font-black shadow-md">
+                          <i className="fas fa-gift"></i>
+                        </div>
+                        <div>
+                          <h3 className="font-extrabold text-sm text-white">Daily Check-in Bonus (ডেইলি চেক-ইন বোনাস কন্ট্রোল)</h3>
+                          <p className="text-[11px] text-slate-300">ব্যবহারকারীদের জন্য প্রতি ২৪ ঘণ্টার ফ্রি রিওয়ার্ড বোনাস সিস্টেম অন/অফ ও এমাউন্ট সেট করুন</p>
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={() => {
+                          setDailyCheckInEnabled(!dailyCheckInEnabled);
+                          showToast(
+                            dailyCheckInEnabled
+                              ? '🔴 ডেইলি চেক-ইন বোনাস বন্ধ করা হয়েছে'
+                              : '🟢 ডেইলি চেক-ইন বোনাস চালু করা হয়েছে',
+                            'info'
+                          );
+                          haptic('heavy');
+                        }}
+                        className={`px-4 py-2.5 rounded-xl font-extrabold text-xs transition border flex items-center gap-2 shadow-md ${
+                          dailyCheckInEnabled
+                            ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40 hover:bg-emerald-500/30'
+                            : 'bg-red-500/20 text-red-400 border-red-500/40 hover:bg-red-500/30'
+                        }`}
+                      >
+                        <i className={`fas ${dailyCheckInEnabled ? 'fa-check-circle' : 'fa-times-circle'}`}></i>
+                        <span>{dailyCheckInEnabled ? 'BONUS SYSTEM ON (চালু)' : 'BONUS SYSTEM OFF (বন্ধ)'}</span>
+                      </button>
+                    </div>
+
+                    {/* Quick Stats Grid */}
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 pt-2">
+                      <div className="bg-black/30 p-3 rounded-xl border border-white/5">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase block">Daily Reward Amount</span>
+                        <span className="text-base font-black text-amber-400 font-mono">৳ {(dailyCheckInReward || 0).toFixed(2)}</span>
+                      </div>
+                      <div className="bg-black/30 p-3 rounded-xl border border-white/5">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase block">Bonus Status</span>
+                        <span className={`text-xs font-black uppercase ${dailyCheckInEnabled ? 'text-emerald-400' : 'text-red-400'}`}>
+                          {dailyCheckInEnabled ? 'Active (চালু)' : 'Disabled (বন্ধ)'}
+                        </span>
+                      </div>
+                      <div className="bg-black/30 p-3 rounded-xl border border-white/5 col-span-2 sm:col-span-1">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase block">Claim Interval</span>
+                        <span className="text-xs font-black text-blue-300">24 Hours / 1 Claim</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Daily Reward Amount Settings Card */}
+                  <div className="bg-slate-900/90 border border-amber-500/30 rounded-2xl p-4 sm:p-5 space-y-4 shadow-xl">
+                    <div className="flex items-center gap-2 border-b border-white/10 pb-3">
+                      <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center justify-center text-sm font-bold">
+                        <i className="fas fa-coins"></i>
+                      </div>
+                      <h4 className="font-extrabold text-xs sm:text-sm text-amber-300 uppercase tracking-wider">
+                        Set Daily Reward Amount (বোনাস টাকার পরিমাণ)
+                      </h4>
+                    </div>
+
+                    <div className="space-y-3">
+                      <div>
+                        <label className="form-label flex items-center gap-1.5 mb-1.5">
+                          <i className="fas fa-money-bill-wave text-emerald-400 text-xs"></i>
+                          <span>Reward Per Check-in (প্রতিদিনের চেক-ইন বোনাস ৳):</span>
+                        </label>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-black text-amber-400 bg-amber-500/10 px-3 py-2.5 rounded-xl border border-amber-500/30">
+                            ৳
+                          </span>
+                          <input
+                            type="number"
+                            step="0.5"
+                            min="0"
+                            className="input-modern text-sm font-mono text-emerald-400 font-extrabold"
+                            value={dailyCheckInReward}
+                            onChange={(e) => setDailyCheckInReward(parseFloat(e.target.value) || 0)}
+                            placeholder="e.g. 5.0"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Quick Presets */}
+                      <div>
+                        <label className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider block mb-1.5">
+                          Quick Presets (দ্রুত বোনাস সেট করুন):
+                        </label>
+                        <div className="flex flex-wrap gap-2">
+                          {[1, 2, 5, 10, 20, 50].map((amt) => (
+                            <button
+                              key={amt}
+                              onClick={() => {
+                                setDailyCheckInReward(amt);
+                                showToast(`✅ Daily Reward Set to ৳ ${amt}.00`, 'info');
+                                haptic('light');
+                              }}
+                              className={`px-3 py-1.5 rounded-xl font-mono text-xs font-bold border transition ${
+                                dailyCheckInReward === amt
+                                  ? 'bg-amber-500 text-black border-amber-400 font-black shadow-md'
+                                  : 'bg-white/5 hover:bg-white/10 text-slate-300 border-white/10'
+                              }`}
+                            >
+                              ৳ {amt}.00
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={() => {
+                          showToast(`✅ ডেইলি চেক-ইন বোনাস ৳ ${(dailyCheckInReward || 0).toFixed(2)} সফলভাবে সেভ হয়েছে!`, 'success');
+                          haptic('success');
+                        }}
+                        className="btn-primary-gradient w-full py-3 text-xs font-extrabold flex items-center justify-center gap-2 shadow-lg transition active:scale-95"
+                      >
+                        <i className="fas fa-save text-sm"></i>
+                        <span>SAVE DAILY REWARD AMOUNT (সেভ করুন)</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Testing & Reset Tools Card */}
+                  <div className="bg-slate-900/90 border border-white/10 rounded-2xl p-4 sm:p-5 space-y-3 shadow-xl">
+                    <div className="flex items-center gap-2 border-b border-white/10 pb-3">
+                      <i className="fas fa-vial text-blue-400 text-sm"></i>
+                      <h4 className="font-extrabold text-xs sm:text-sm text-white">
+                        Admin Testing & Reset Cooldown (টেস্ট ও রিসেট অপশন)
+                      </h4>
+                    </div>
+
+                    <p className="text-[11px] text-slate-300">
+                      ডেইলি বোনাস টেস্ট করার জন্য নিচের বাটনগুলো ব্যবহার করতে পারেন:
+                    </p>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
+                      <button
+                        onClick={handleClaimDailyCheckIn}
+                        disabled={dailyCheckInLoading || !dailyCheckInEnabled}
+                        className="p-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:brightness-110 disabled:opacity-50 text-white font-extrabold text-xs flex items-center justify-center gap-2 shadow-md transition active:scale-95"
+                      >
+                        <i className="fas fa-gift text-sm"></i>
+                        <span>TEST CLAIM DAILY BONUS NOW</span>
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          const key = 'smm_daily_checkin_' + (currentUser?.uid || 'guest');
+                          localStorage.removeItem(key);
+                          setLastDailyCheckInDate('');
+                          showToast('🔄 টেস্ট কুলডাউন রিসেট করা হয়েছে! এখন আবার ক্লেইম টেস্ট করতে পারবেন।', 'success');
+                          haptic('medium');
+                        }}
+                        className="p-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/30 font-extrabold text-xs flex items-center justify-center gap-2 shadow-md transition active:scale-95"
+                      >
+                        <i className="fas fa-redo-alt text-sm text-amber-400"></i>
+                        <span>RESET CLAIM COOLDOWN (রিসেট করুন)</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Info Notice */}
+                  <div className="p-3.5 rounded-2xl bg-blue-950/40 border border-blue-500/20 text-[11px] text-blue-200 flex items-start gap-2.5">
+                    <i className="fas fa-info-circle text-blue-400 text-sm mt-0.5"></i>
+                    <div>
+                      <p className="font-bold text-white mb-0.5">কীভাবে কাজ করে?</p>
+                      <p className="text-slate-300">
+                        যেকোনো ইউজার প্রতি ২৪ ঘণ্টায় ১ বার &apos;Daily Check-in Bonus&apos; ক্লেইম করতে পারবে। ক্লেইম করার সাথে সাথে তাদের একাউন্টে ৳ {dailyCheckInReward.toFixed(2)} যুক্ত হবে এবং টেলিক্রম প্রুফ চ্যানেলে অটোমেটিক নোটিফিকেশন মেসেজ চলে যাবে।
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* SUB TAB: WATCH ADS & EARN MANAGEMENT (এড দেখে আয় কন্ট্রোল) */}
+              {adminSubTab === 'ads' && (
+                <div className="space-y-4">
+                  {/* Header Banner & System Toggle */}
+                  <div className="p-4 rounded-2xl bg-gradient-to-r from-purple-950/70 via-indigo-900/50 to-slate-900 border border-purple-500/40 shadow-lg space-y-3">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div className="flex items-center gap-3">
+                        <div className="w-11 h-11 rounded-2xl bg-purple-500/20 border border-purple-500/40 text-purple-400 flex items-center justify-center text-xl font-black shadow-md">
+                          <i className="fas fa-play-circle"></i>
+                        </div>
+                        <div>
+                          <h3 className="font-extrabold text-sm text-white">Watch Ads & Earn System (এড দেখে আয় কন্ট্রোল)</h3>
+                          <p className="text-[11px] text-slate-300">ব্যবহারকারীদের এড দেখে আয় করার অপশন চালু/বন্ধ, টাকা এমাউন্ট ও দৈনিক লিমিট সেট করুন</p>
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={() => {
+                          setAdEarnEnabled(!adEarnEnabled);
+                          showToast(
+                            adEarnEnabled
+                              ? '🔴 এড দেখে আয় সিস্টেম বন্ধ করা হয়েছে'
+                              : '🟢 এড দেখে আয় সিস্টেম চালু করা হয়েছে',
+                            'info'
+                          );
+                          haptic('heavy');
+                        }}
+                        className={`px-4 py-2.5 rounded-xl font-extrabold text-xs transition border flex items-center gap-2 shadow-md ${
+                          adEarnEnabled
+                            ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40 hover:bg-emerald-500/30'
+                            : 'bg-red-500/20 text-red-400 border-red-500/40 hover:bg-red-500/30'
+                        }`}
+                      >
+                        <i className={`fas ${adEarnEnabled ? 'fa-check-circle' : 'fa-times-circle'}`}></i>
+                        <span>{adEarnEnabled ? 'AD SYSTEM ON (চালু)' : 'AD SYSTEM OFF (বন্ধ)'}</span>
+                      </button>
+                    </div>
+
+                    {/* Quick Stats Grid */}
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 pt-2">
+                      <div className="bg-black/30 p-3 rounded-xl border border-white/5">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase block">Reward Per Ad</span>
+                        <span className="text-base font-black text-emerald-400 font-mono">৳ {(adEarnRewardPerAd || 0).toFixed(2)}</span>
+                      </div>
+                      <div className="bg-black/30 p-3 rounded-xl border border-white/5">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase block">Daily Max Limit</span>
+                        <span className="text-base font-black text-amber-400 font-mono">{adEarnDailyMaxLimit} Ads</span>
+                      </div>
+                      <div className="bg-black/30 p-3 rounded-xl border border-white/5 col-span-2 sm:col-span-1">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase block">Status</span>
+                        <span className={`text-xs font-black uppercase ${adEarnEnabled ? 'text-emerald-400' : 'text-red-400'}`}>
+                          {adEarnEnabled ? 'Active (চালু)' : 'Disabled (বন্ধ)'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Ad Rewards & Limit Settings Form Card */}
+                  <div className="bg-slate-900/90 border border-purple-500/30 rounded-2xl p-4 sm:p-5 space-y-4 shadow-xl">
+                    <div className="flex items-center gap-2 border-b border-white/10 pb-3">
+                      <div className="w-8 h-8 rounded-xl bg-purple-500/20 text-purple-400 border border-purple-500/30 flex items-center justify-center text-sm font-bold">
+                        <i className="fas fa-sliders-h"></i>
+                      </div>
+                      <h4 className="font-extrabold text-xs sm:text-sm text-purple-300 uppercase tracking-wider">
+                        Configure Ad Rewards & Limits (এড রিওয়ার্ড ও লিমিট সেট করুন)
+                      </h4>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      {/* Reward per ad */}
+                      <div className="space-y-2">
+                        <label className="form-label flex items-center gap-1.5">
+                          <i className="fas fa-money-bill-wave text-emerald-400 text-xs"></i>
+                          <span>Reward Per Ad View (প্রতি এড দেখলে কত টাকা ৳):</span>
+                        </label>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-black text-emerald-400 bg-emerald-500/10 px-3 py-2.5 rounded-xl border border-emerald-500/30">
+                            ৳
+                          </span>
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            className="input-modern text-sm font-mono text-emerald-400 font-extrabold"
+                            value={adEarnRewardPerAd}
+                            onChange={(e) => setAdEarnRewardPerAd(parseFloat(e.target.value) || 0)}
+                            placeholder="e.g. 0.10"
+                          />
+                        </div>
+
+                        {/* Quick Presets for Reward */}
+                        <div className="pt-1">
+                          <label className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider block mb-1">
+                            Reward Presets (দ্রুত সেট করুন):
+                          </label>
+                          <div className="flex flex-wrap gap-1.5">
+                            {[0.05, 0.1, 0.2, 0.5, 1, 2, 5].map((amt) => (
+                              <button
+                                key={amt}
+                                onClick={() => {
+                                  setAdEarnRewardPerAd(amt);
+                                  showToast(`✅ Ad Reward set to ৳ ${amt.toFixed(2)}`, 'info');
+                                  haptic('light');
+                                }}
+                                className={`px-2.5 py-1 rounded-lg font-mono text-[11px] font-bold border transition ${
+                                  adEarnRewardPerAd === amt
+                                    ? 'bg-emerald-500 text-black border-emerald-400 font-black shadow'
+                                    : 'bg-white/5 hover:bg-white/10 text-slate-300 border-white/10'
+                                }`}
+                              >
+                                ৳ {amt.toFixed(2)}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Daily Limit */}
+                      <div className="space-y-2">
+                        <label className="form-label flex items-center gap-1.5">
+                          <i className="fas fa-history text-amber-400 text-xs"></i>
+                          <span>Daily Max Ad Watch Limit (একজনে দিনে কয়টা এড দেখতে পারবে):</span>
+                        </label>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-black text-amber-400 bg-amber-500/10 px-3 py-2.5 rounded-xl border border-amber-500/30">
+                            <i className="fas fa-play"></i>
+                          </span>
+                          <input
+                            type="number"
+                            min="1"
+                            className="input-modern text-sm font-mono text-amber-300 font-extrabold"
+                            value={adEarnDailyMaxLimit}
+                            onChange={(e) => setAdEarnDailyMaxLimit(parseInt(e.target.value, 10) || 50)}
+                            placeholder="e.g. 500"
+                          />
+                        </div>
+
+                        {/* Quick Presets for Limit */}
+                        <div className="pt-1">
+                          <label className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider block mb-1">
+                            Limit Presets (দ্রুত লিমিট সেট করুন):
+                          </label>
+                          <div className="flex flex-wrap gap-1.5">
+                            {[10, 25, 50, 100, 200, 500].map((lim) => (
+                              <button
+                                key={lim}
+                                onClick={() => {
+                                  setAdEarnDailyMaxLimit(lim);
+                                  showToast(`✅ Daily limit set to ${lim} Ads`, 'info');
+                                  haptic('light');
+                                }}
+                                className={`px-2.5 py-1 rounded-lg font-mono text-[11px] font-bold border transition ${
+                                  adEarnDailyMaxLimit === lim
+                                    ? 'bg-amber-500 text-black border-amber-400 font-black shadow'
+                                    : 'bg-white/5 hover:bg-white/10 text-slate-300 border-white/10'
+                                }`}
+                              >
+                                {lim} Ads
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={() => {
+                        showToast(`✅ এড রিওয়ার্ড ৳ ${(adEarnRewardPerAd || 0).toFixed(2)} এবং লিমিট ${adEarnDailyMaxLimit} এড সেভ হয়েছে!`, 'success');
+                        haptic('success');
+                      }}
+                      className="btn-primary-gradient w-full py-3 text-xs font-extrabold flex items-center justify-center gap-2 shadow-lg transition active:scale-95"
+                    >
+                      <i className="fas fa-save text-sm"></i>
+                      <span>SAVE AD EARN SETTINGS (সেটিংস সেভ করুন)</span>
+                    </button>
+                  </div>
+
+                  {/* Testing Card */}
+                  <div className="bg-slate-900/90 border border-white/10 rounded-2xl p-4 sm:p-5 space-y-3 shadow-xl">
+                    <div className="flex items-center gap-2 border-b border-white/10 pb-3">
+                      <i className="fas fa-flask text-purple-400 text-sm"></i>
+                      <h4 className="font-extrabold text-xs sm:text-sm text-white">
+                        Admin Ad Test (এড টেস্ট করুন)
+                      </h4>
+                    </div>
+
+                    <p className="text-[11px] text-slate-300">
+                      এড দেখা ফাংশনটি সঠিকভাবে কাজ করছে কিনা টেস্ট করার জন্য নিচের বাটনে ক্লিক করুন:
+                    </p>
+
+                    <button
+                      onClick={handleWatchAdEarn}
+                      disabled={adWatchLoading || !adEarnEnabled}
+                      className="w-full p-3.5 rounded-xl bg-gradient-to-r from-purple-600 via-indigo-600 to-blue-600 hover:brightness-110 disabled:opacity-50 text-white font-extrabold text-xs flex items-center justify-center gap-2.5 shadow-lg transition active:scale-95"
+                    >
+                      {adWatchLoading ? (
+                        <>
+                          <i className="fas fa-spinner fa-spin text-sm"></i>
+                          <span>LOADING AD... (এড লোড হচ্ছে)</span>
+                        </>
+                      ) : (
+                        <>
+                          <i className="fas fa-play-circle text-base text-amber-300"></i>
+                          <span>WATCH TEST AD NOW (টাকা ৳{(adEarnRewardPerAd || 0).toFixed(2)})</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+
+                  {/* Info Notice */}
+                  <div className="p-3.5 rounded-2xl bg-purple-950/40 border border-purple-500/20 text-[11px] text-purple-200 flex items-start gap-2.5">
+                    <i className="fas fa-info-circle text-purple-400 text-sm mt-0.5"></i>
+                    <div>
+                      <p className="font-bold text-white mb-0.5">কীভাবে কাজ করে?</p>
+                      <p className="text-slate-300">
+                        ইউজাররা &apos;Earn Money &apos; পেজ থেকে &apos;Watch Ads & Earn &apos; বাটনে ক্লিক করে এড দেখতে পারবে। প্রতিবার এড সফলভাবে দেখা শেষ হলে তাদের ওয়ালেটে ৳ {(adEarnRewardPerAd || 0).toFixed(2)} যোগ হবে। একজনে সর্বোচ্চ {adEarnDailyMaxLimit}টি এড দেখতে পারবে।
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* SUB TAB: PROMO CODE MANAGEMENT (প্রোমো CODES) */}
+              {adminSubTab === 'promo' && (
+                <div className="space-y-4">
+                  <div className="p-4 rounded-2xl bg-gradient-to-r from-blue-900/50 via-indigo-900/40 to-slate-900 border border-blue-500/30 shadow-lg space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-2xl bg-blue-500/20 border border-blue-500/40 text-blue-400 flex items-center justify-center text-lg font-black shadow-md">
+                          <i className="fas fa-ticket-alt"></i>
+                        </div>
+                        <div>
+                          <h3 className="font-extrabold text-sm text-white">Promo Code Management (প্রোমো কোড কন্ট্রোল)</h3>
+                          <p className="text-[11px] text-slate-300">নতুন প্রোমো কোড তৈরি করুন, লিমিট ও টাকা এমাউন্ট সেট করুন এবং প্রয়োজনমতো ডিলিট করুন</p>
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={() => {
+                          setPromoCodeEnabled(!promoCodeEnabled);
+                          showToast(promoCodeEnabled ? '🔴 প্রোমো কোড রিডিম সিস্টেম বন্ধ করা হয়েছে' : '🟢 প্রোমো কোড রিডিম সিস্টেম চালু করা হয়েছে', 'info');
+                          haptic('light');
+                        }}
+                        className={`px-3.5 py-2 rounded-xl font-extrabold text-xs transition border flex items-center gap-1.5 shadow-md ${
+                          promoCodeEnabled
+                            ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40 hover:bg-emerald-500/30'
+                            : 'bg-red-500/20 text-red-400 border-red-500/40 hover:bg-red-500/30'
+                        }`}
+                      >
+                        <i className={`fas ${promoCodeEnabled ? 'fa-check-circle' : 'fa-times-circle'}`}></i>
+                        <span>{promoCodeEnabled ? 'SYSTEM ON (চালু)' : 'SYSTEM OFF (বন্ধ)'}</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Create New Promo Code Form Card */}
+                  <div className="bg-slate-900/90 border border-blue-500/30 rounded-2xl p-4 sm:p-5 space-y-4 shadow-xl">
+                    <div className="flex items-center gap-2 border-b border-white/10 pb-3">
+                      <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center justify-center text-sm font-bold">
+                        <i className="fas fa-plus-circle"></i>
+                      </div>
+                      <h4 className="font-extrabold text-xs sm:text-sm text-amber-300 uppercase tracking-wider">
+                        Create New Promo Code (নতুন প্রোমো কোড তৈরি করুন)
+                      </h4>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <div>
+                        <label className="form-label flex items-center gap-1">
+                          <i className="fas fa-tag text-blue-400 text-[10px]"></i>
+                          <span>Promo Code Name (কোডের নাম):</span>
+                        </label>
+                        <input
+                          type="text"
+                          className="input-modern uppercase text-xs font-mono font-bold text-amber-300"
+                          placeholder="e.g. WELCOME100 or FARJU50"
+                          value={newPromoCode}
+                          onChange={(e) => setNewPromoCode(e.target.value.toUpperCase())}
+                        />
+                      </div>
+
+                      <div>
+                        <label className="form-label flex items-center gap-1">
+                          <i className="fas fa-money-bill-wave text-emerald-400 text-[10px]"></i>
+                          <span>Reward Amount (টাকা এমাউন্ট ৳):</span>
+                        </label>
+                        <input
+                          type="number"
+                          className="input-modern text-xs font-mono text-emerald-400 font-bold"
+                          placeholder="e.g. 10 or 20"
+                          value={newPromoReward}
+                          onChange={(e) => setNewPromoReward(e.target.value)}
+                        />
+                      </div>
+
+                      <div>
+                        <label className="form-label flex items-center gap-1">
+                          <i className="fas fa-users-cog text-purple-400 text-[10px]"></i>
+                          <span>Usage Limit (ব্যবহারের লিমিট):</span>
+                        </label>
+                        <input
+                          type="number"
+                          className="input-modern text-xs font-mono text-white font-bold"
+                          placeholder="e.g. 50 or 100"
+                          value={newPromoMaxUses}
+                          onChange={(e) => setNewPromoMaxUses(e.target.value)}
+                        />
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={handleCreatePromoCode}
+                      className="btn-primary-gradient w-full py-3 text-xs font-extrabold flex items-center justify-center gap-2 shadow-lg transition active:scale-95"
+                    >
+                      <i className="fas fa-plus-circle text-sm"></i>
+                      <span>CREATE PROMO CODE (কোড তৈরি করুন)</span>
+                    </button>
+                  </div>
+
+                  {/* Active Promo Codes List Card */}
+                  <div className="bg-slate-900/90 border border-white/10 rounded-2xl p-4 sm:p-5 space-y-3 shadow-xl">
+                    <div className="flex items-center justify-between border-b border-white/10 pb-3">
+                      <div className="flex items-center gap-2">
+                        <i className="fas fa-list-check text-blue-400 text-sm"></i>
+                        <h4 className="font-extrabold text-xs sm:text-sm text-white">
+                          Active Promo Codes (সকল প্রোমো কোড)
+                        </h4>
+                      </div>
+                      <span className="text-xs font-black bg-blue-500/20 text-blue-300 border border-blue-500/30 px-3 py-0.5 rounded-full font-mono">
+                        Total: {promoCodes.length}
+                      </span>
+                    </div>
+
+                    {promoCodes.length === 0 ? (
+                      <div className="text-center py-8 space-y-2">
+                        <i className="fas fa-ticket-alt text-3xl text-slate-600"></i>
+                        <p className="text-xs text-slate-400 font-bold">এখনো কোনো প্রোমো কোড তৈরি করা হয়নি</p>
+                        <p className="text-[10px] text-slate-500">উপরের ফর্ম থেকে নতুন প্রোমো কোড তৈরি করুন</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-2.5">
+                        {promoCodes.map((p) => (
+                          <div
+                            key={p.id}
+                            className="p-3.5 rounded-2xl bg-slate-950/80 border border-white/10 hover:border-amber-500/40 transition-all flex flex-wrap items-center justify-between gap-3 shadow-md"
+                          >
+                            <div className="space-y-1.5 min-w-[200px]">
+                              <div className="flex items-center gap-2">
+                                <span className="font-mono font-black text-xs text-amber-300 bg-amber-500/20 px-2.5 py-1 rounded-lg border border-amber-500/30 shadow-inner">
+                                  🏷️ {p.code}
+                                </span>
+                                <span className="font-black text-xs text-emerald-400 font-mono bg-emerald-500/10 px-2.5 py-1 rounded-lg border border-emerald-500/20">
+                                  +৳ {p.reward.toFixed(2)}
+                                </span>
+                              </div>
+                              <div className="text-[11px] text-slate-300 flex items-center gap-3 font-medium">
+                                <span>⚡ <b>Used:</b> {p.usedCount} / {p.maxUses}</span>
+                                <span>•</span>
+                                <span>👤 <b>Redeemed Users:</b> {p.usedByUsers ? p.usedByUsers.length : 0}</span>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                              <span className={`text-[10px] font-black px-2.5 py-1 rounded-full border ${
+                                p.usedCount >= p.maxUses
+                                  ? 'bg-red-500/20 text-red-400 border-red-500/30'
+                                  : 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                              }`}>
+                                {p.usedCount >= p.maxUses ? 'Limit Reached' : 'Active'}
+                              </span>
+
+                              <button
+                                onClick={() => handleDeletePromoCode(p.id, p.code)}
+                                className="px-3 py-1.5 rounded-xl bg-red-600/20 hover:bg-red-600/30 text-red-400 border border-red-500/30 flex items-center gap-1 text-xs font-extrabold transition active:scale-95"
+                                title="Delete Promo Code"
+                              >
+                                <i className="fas fa-trash-alt"></i>
+                                <span>DELETE (ডিলিট)</span>
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
@@ -5205,9 +7548,471 @@ export default function App() {
                       </div>
                     </div>
                   </div>
+
+                  {/* Section 3: Periodic Channel Re-Check Admin Control (৫ মিনিট পরপর চ্যানেল চেক) */}
+                  <div className="glass-card p-4 space-y-3 border border-indigo-500/30">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-9 h-9 rounded-xl bg-indigo-500/20 border border-indigo-500/30 text-indigo-400 flex items-center justify-center text-sm font-bold">
+                          <i className="fas fa-clock"></i>
+                        </div>
+                        <div>
+                          <h4 className="font-extrabold text-xs text-white">Periodic Channel Re-Check (৫ মিনিট পরপর জয়েনিং চেক)</h4>
+                          <p className="text-[10px] text-slate-400">নির্দিষ্ট সময় পরপর স্বয়ংক্রিয়ভাবে ব্যবহারকারীর চ্যানেল জয়েন ভেরিফাই করবে</p>
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={() => {
+                          setPeriodicChannelCheckEnabled(!periodicChannelCheckEnabled);
+                          showToast(periodicChannelCheckEnabled ? '🔴 ৫ মিনিট পরপর জয়েনিং চেক বন্ধ করা হয়েছে' : '🟢 ৫ মিনিট পরপর জয়েনিং চেক চালু করা হয়েছে', 'info');
+                          haptic('light');
+                        }}
+                        className={`px-3 py-1.5 rounded-xl font-extrabold text-xs transition border ${
+                          periodicChannelCheckEnabled
+                            ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                            : 'bg-red-500/20 text-red-400 border-red-500/30'
+                        }`}
+                      >
+                        {periodicChannelCheckEnabled ? 'ON (চালু)' : 'OFF (বন্ধ)'}
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-white/5">
+                      <div>
+                        <label className="form-label">Checking Interval (মিনিট):</label>
+                        <input
+                          type="number"
+                          className="input-modern text-xs font-mono"
+                          value={periodicChannelCheckInterval}
+                          onChange={(e) => setPeriodicChannelCheckInterval(parseInt(e.target.value, 10) || 5)}
+                          placeholder="e.g. 5"
+                        />
+                      </div>
+                      <div className="flex items-end">
+                        <button
+                          onClick={() => {
+                            showToast(`✅ ${periodicChannelCheckInterval} মিনিট পরপর জয়েনিং রি-চেক টাইম সেট হয়েছে!`, 'success');
+                            haptic('success');
+                          }}
+                          className="btn-primary-solid w-full py-2.5 text-xs"
+                        >
+                          SAVE INTERVAL SETTINGS
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Section 4: Daily Check-in Admin Control (ডেইলি চেকিং কন্ট্রোল) */}
+                  <div className="glass-card p-4 space-y-3 border border-amber-500/30">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-9 h-9 rounded-xl bg-amber-500/20 border border-amber-500/30 text-amber-400 flex items-center justify-center text-sm font-bold">
+                          <i className="fas fa-gift"></i>
+                        </div>
+                        <div>
+                          <h4 className="font-extrabold text-xs text-white">Daily Check-in System (ডেইলি চেকিং রিওয়ার্ড কন্ট্রোল)</h4>
+                          <p className="text-[10px] text-slate-400">প্রতিদিনের ২৪ ঘণ্টার ফ্রিতে বোনাস অন/অফ ও টাকার পরিমাণ সেট করুন</p>
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={() => {
+                          setDailyCheckInEnabled(!dailyCheckInEnabled);
+                          showToast(dailyCheckInEnabled ? '🔴 ডেইলি চেকিং বোনাস বন্ধ করা হয়েছে' : '🟢 ডেইলি চেকিং বোনাস চালু করা হয়েছে', 'info');
+                          haptic('light');
+                        }}
+                        className={`px-3 py-1.5 rounded-xl font-extrabold text-xs transition border ${
+                          dailyCheckInEnabled
+                            ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                            : 'bg-red-500/20 text-red-400 border-red-500/30'
+                        }`}
+                      >
+                        {dailyCheckInEnabled ? 'ON (চালু)' : 'OFF (বন্ধ)'}
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-white/5">
+                      <div>
+                        <label className="form-label">Daily Reward Amount (৳):</label>
+                        <input
+                          type="number"
+                          className="input-modern text-xs font-mono"
+                          value={dailyCheckInReward}
+                          onChange={(e) => setDailyCheckInReward(parseFloat(e.target.value) || 0)}
+                          placeholder="e.g. 5.0"
+                        />
+                      </div>
+                      <div className="flex items-end">
+                        <button
+                          onClick={() => {
+                            showToast(`✅ ডেইলি চেকিং বোনাস ৳ ${dailyCheckInReward.toFixed(2)} সেট করা হয়েছে!`, 'success');
+                            haptic('success');
+                          }}
+                          className="btn-primary-solid w-full py-2.5 text-xs"
+                        >
+                          SAVE REWARD AMOUNT
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Section 5: Promo Code Admin Control (প্রোমো কোড ম্যানেজমেন্ট) */}
+                  <div className="glass-card p-4 space-y-4 border border-blue-500/30">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-9 h-9 rounded-xl bg-blue-500/20 border border-blue-500/30 text-blue-400 flex items-center justify-center text-sm font-bold">
+                          <i className="fas fa-ticket-alt"></i>
+                        </div>
+                        <div>
+                          <h4 className="font-extrabold text-xs text-white">Promo Code Management (প্রোমো কোড কন্ট্রোল)</h4>
+                          <p className="text-[10px] text-slate-400">নতুন প্রোমো কোড তৈরি করুন এবং একটিভ কোডগুলো নিয়ন্ত্রণ করুন</p>
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={() => {
+                          setPromoCodeEnabled(!promoCodeEnabled);
+                          showToast(promoCodeEnabled ? '🔴 প্রোমো কোড রিডিম সিস্টেম বন্ধ করা হয়েছে' : '🟢 প্রোমো কোড রিডিম সিস্টেম চালু করা হয়েছে', 'info');
+                          haptic('light');
+                        }}
+                        className={`px-3 py-1.5 rounded-xl font-extrabold text-xs transition border ${
+                          promoCodeEnabled
+                            ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                            : 'bg-red-500/20 text-red-400 border-red-500/30'
+                        }`}
+                      >
+                        {promoCodeEnabled ? 'ON (চালু)' : 'OFF (বন্ধ)'}
+                      </button>
+                    </div>
+
+                    {/* Create New Promo Code Form */}
+                    <div className="p-3 bg-slate-900/80 rounded-2xl border border-white/10 space-y-3">
+                      <h5 className="font-extrabold text-xs text-amber-300">Create New Promo Code (নতুন কোড তৈরি করুন)</h5>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                        <div>
+                          <label className="form-label">Promo Code Name</label>
+                          <input
+                            type="text"
+                            className="input-modern uppercase text-xs font-mono font-bold"
+                            placeholder="e.g. FARJU100"
+                            value={newPromoCode}
+                            onChange={(e) => setNewPromoCode(e.target.value.toUpperCase())}
+                          />
+                        </div>
+
+                        <div>
+                          <label className="form-label">Reward Amount (৳)</label>
+                          <input
+                            type="number"
+                            className="input-modern text-xs font-mono"
+                            placeholder="e.g. 10"
+                            value={newPromoReward}
+                            onChange={(e) => setNewPromoReward(e.target.value)}
+                          />
+                        </div>
+
+                        <div>
+                          <label className="form-label">Max Uses Limit</label>
+                          <input
+                            type="number"
+                            className="input-modern text-xs font-mono"
+                            placeholder="e.g. 50"
+                            value={newPromoMaxUses}
+                            onChange={(e) => setNewPromoMaxUses(e.target.value)}
+                          />
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={handleCreatePromoCode}
+                        className="btn-primary-gradient w-full py-2.5 text-xs font-extrabold flex items-center justify-center gap-2"
+                      >
+                        <i className="fas fa-plus-circle"></i>
+                        <span>CREATE PROMO CODE</span>
+                      </button>
+                    </div>
+
+                    {/* Active Promo Codes List */}
+                    <div className="space-y-2">
+                      <h5 className="font-extrabold text-xs text-slate-300">Active Promo Codes ({promoCodes.length})</h5>
+
+                      {promoCodes.length === 0 ? (
+                        <p className="text-xs text-slate-500 text-center py-2">কোনো প্রোমো কোড তৈরি করা হয়নি</p>
+                      ) : (
+                        <div className="space-y-2">
+                          {promoCodes.map((p) => (
+                            <div key={p.id} className="p-3 rounded-xl bg-slate-900/60 border border-white/10 flex items-center justify-between gap-3">
+                              <div className="space-y-1">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-mono font-black text-xs text-amber-300 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
+                                    {p.code}
+                                  </span>
+                                  <span className="font-bold text-xs text-emerald-400 font-mono">
+                                    +৳ {p.reward}
+                                  </span>
+                                </div>
+                                <div className="text-[10px] text-slate-400 flex items-center gap-2">
+                                  <span>Used: {p.usedCount} / {p.maxUses}</span>
+                                  <span>•</span>
+                                  <span>Users Redeemed: {p.usedByUsers ? p.usedByUsers.length : 0}</span>
+                                </div>
+                              </div>
+
+                              <button
+                                onClick={() => handleDeletePromoCode(p.id, p.code)}
+                                className="w-7 h-7 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 flex items-center justify-center text-xs transition"
+                                title="Delete Promo Code"
+                              >
+                                <i className="fas fa-trash-alt"></i>
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Section 6: Ad Earn Admin Control (এড দেখে আয় কন্ট্রোল) */}
+                  <div className="glass-card p-4 space-y-3 border border-purple-500/30">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-9 h-9 rounded-xl bg-purple-500/20 border border-purple-500/30 text-purple-400 flex items-center justify-center text-sm font-bold">
+                          <i className="fas fa-play-circle"></i>
+                        </div>
+                        <div>
+                          <h4 className="font-extrabold text-xs text-white">Ad Earn System (এড দেখে আয় কন্ট্রোল)</h4>
+                          <p className="text-[10px] text-slate-400">এড দেখা সিস্টেম অন/অফ, প্রতি এড এ কত টাকা এবং দৈনিক লিমিট সেট করুন</p>
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={() => {
+                          setAdEarnEnabled(!adEarnEnabled);
+                          showToast(adEarnEnabled ? '🔴 এড দেখে আয় সিস্টেম বন্ধ করা হয়েছে' : '🟢 এড দেখে আয় সিস্টেম চালু করা হয়েছে', 'info');
+                          haptic('light');
+                        }}
+                        className={`px-3 py-1.5 rounded-xl font-extrabold text-xs transition border ${
+                          adEarnEnabled
+                            ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                            : 'bg-red-500/20 text-red-400 border-red-500/30'
+                        }`}
+                      >
+                        {adEarnEnabled ? 'ON (চালু)' : 'OFF (বন্ধ)'}
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-white/5">
+                      <div>
+                        <label className="form-label">Reward Per Ad (৳ per ad):</label>
+                        <input
+                          type="number"
+                          step="0.001"
+                          className="input-modern text-xs font-mono"
+                          value={adEarnRewardPerAd}
+                          onChange={(e) => setAdEarnRewardPerAd(parseFloat(e.target.value) || 0)}
+                          placeholder="e.g. 0.00"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="form-label">Daily Max Ad Limit (দৈনিক এড লিমিট):</label>
+                        <input
+                          type="number"
+                          className="input-modern text-xs font-mono"
+                          value={adEarnDailyMaxLimit}
+                          onChange={(e) => setAdEarnDailyMaxLimit(parseInt(e.target.value, 10) || 500)}
+                          placeholder="e.g. 500"
+                        />
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={() => {
+                        showToast(`✅ এড রিওয়ার্ড ৳ ${adEarnRewardPerAd.toFixed(2)} এবং দৈনিক লিমিট ${adEarnDailyMaxLimit} সেভ করা হয়েছে!`, 'success');
+                        haptic('success');
+                      }}
+                      className="btn-primary-solid w-full py-2.5 text-xs font-extrabold uppercase tracking-wider"
+                    >
+                      SAVE AD EARN SETTINGS
+                    </button>
+                  </div>
                 </div>
               )}
             </section>
+          )}
+
+          {/* WATCH ADS INTERACTIVE PLAYER MODAL */}
+          {showAdModal && (
+            <div className="fixed inset-0 z-[100] bg-black/90 backdrop-blur-md flex items-center justify-center p-4 animate-fade-in">
+              <div className="bg-slate-900 border border-purple-500/40 rounded-3xl max-w-md w-full overflow-hidden shadow-[0_0_60px_rgba(168,85,247,0.35)] space-y-0">
+                {/* Modal Top Header Bar */}
+                <div className="p-4 border-b border-white/10 flex items-center justify-between bg-slate-950/80">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-9 h-9 rounded-xl bg-purple-500/20 text-purple-400 border border-purple-500/30 flex items-center justify-center text-base font-black shadow">
+                      <i className="fas fa-play-circle animate-pulse"></i>
+                    </div>
+                    <div>
+                      <h3 className="font-extrabold text-sm text-white flex items-center gap-2">
+                        <span>Monetag Rewarded Ad</span>
+                        <span className="text-[9px] font-mono text-purple-300 bg-purple-500/20 px-2 py-0.5 rounded-md border border-purple-500/30">
+                          ZONE #11498050
+                        </span>
+                      </h3>
+                      <p className="text-[10px] text-slate-400">Watch full ad to claim instant reward balance</p>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => {
+                      if (!adCanClaim && adCountdown > 0) {
+                        if (confirm('⚠️ এড দেখা শেষ হওয়ার আগে বন্ধ করলে রিওয়ার্ড পাবেন না! বন্ধ করতে চান?')) {
+                          setShowAdModal(false);
+                        }
+                      } else {
+                        setShowAdModal(false);
+                      }
+                    }}
+                    className="w-8 h-8 rounded-xl bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white flex items-center justify-center text-xs transition border border-white/10"
+                    title="Close Modal"
+                  >
+                    <i className="fas fa-times"></i>
+                  </button>
+                </div>
+
+                {/* Animated Progress Bar */}
+                <div className="w-full bg-slate-950 h-2 overflow-hidden relative">
+                  <div
+                    className="bg-gradient-to-r from-purple-500 via-pink-500 to-amber-400 h-2 transition-all duration-1000 ease-linear"
+                    style={{
+                      width: `${((5 - adCountdown) / 5) * 100}%`
+                    }}
+                  ></div>
+                </div>
+
+                {/* Main Video Ad Frame */}
+                <div className="p-5 space-y-4">
+                  <div className="relative aspect-video w-full rounded-2xl overflow-hidden bg-gradient-to-br from-purple-950 via-slate-950 to-indigo-950 border border-purple-500/30 flex flex-col items-center justify-center text-center p-4 shadow-inner">
+                    <div className="absolute top-2 right-2 bg-black/70 text-[10px] font-mono font-black text-amber-300 px-2.5 py-1 rounded-lg border border-amber-500/30 flex items-center gap-1.5">
+                      <i className="fas fa-clock text-amber-400"></i>
+                      <span>{adCountdown > 0 ? `00:0${adCountdown}` : 'COMPLETED'}</span>
+                    </div>
+
+                    <div className="absolute top-2 left-2 bg-purple-500/20 text-[9px] font-bold text-purple-300 px-2 py-0.5 rounded border border-purple-500/30">
+                      SPONSORED AD
+                    </div>
+
+                    {adCountdown > 0 ? (
+                      <div className="space-y-3">
+                        <div className="w-14 h-14 rounded-2xl bg-purple-500/20 text-purple-400 border border-purple-400/40 flex items-center justify-center text-2xl mx-auto shadow-lg animate-pulse">
+                          <i className="fas fa-film"></i>
+                        </div>
+                        <div>
+                          <h4 className="font-black text-sm text-white tracking-wide">
+                            Monetag Sponsored Ad Playing...
+                          </h4>
+                          <p className="text-[11px] text-purple-200 mt-0.5">
+                            PLEASE WAIT {adCountdown} SECONDS TO CLAIM ৳ {(adEarnRewardPerAd || 0).toFixed(2)}
+                          </p>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="space-y-3 animate-bounce">
+                        <div className="w-14 h-14 rounded-2xl bg-emerald-500/20 text-emerald-400 border border-emerald-400/40 flex items-center justify-center text-2xl mx-auto shadow-lg">
+                          <i className="fas fa-check-circle"></i>
+                        </div>
+                        <div>
+                          <h4 className="font-black text-sm text-emerald-300">
+                            Ad Watched Successfully!
+                          </h4>
+                          <p className="text-[11px] text-slate-300">
+                            Click button below to add ৳ {(adEarnRewardPerAd || 0).toFixed(2)} to wallet!
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Monetag Direct Ad Trigger & Sponsor Link */}
+                  <div className="p-3.5 rounded-2xl bg-gradient-to-r from-purple-950/60 to-slate-950 border border-purple-500/30 space-y-2">
+                    <div className="flex items-center justify-between text-xs">
+                      <div className="flex items-center gap-2">
+                        <i className="fas fa-bullhorn text-purple-400 text-xs"></i>
+                        <span className="text-white text-[11px] font-bold">Monetag Ad (Zone #11498050)</span>
+                      </div>
+                      <span className="text-[10px] text-emerald-400 font-bold bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+                        Active
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        onClick={() => {
+                          if (typeof (window as any).show_11498050 === 'function') {
+                            try {
+                              (window as any).show_11498050().then(() => {
+                                showToast('✅ Monetag Ad completed!', 'success');
+                              }).catch(() => {
+                                window.open('https://alwingulla.com/', '_blank');
+                              });
+                            } catch {
+                              window.open('https://alwingulla.com/', '_blank');
+                            }
+                          } else {
+                            window.open('https://alwingulla.com/', '_blank');
+                          }
+                          haptic('medium');
+                        }}
+                        className="w-full py-2 px-3 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-[11px] font-extrabold transition flex items-center justify-center gap-1.5 shadow"
+                      >
+                        <i className="fas fa-play text-xs text-amber-300"></i>
+                        <span>Play Monetag Ad</span>
+                      </button>
+
+                      <a
+                        href="https://alwingulla.com/"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="w-full py-2 px-3 rounded-xl bg-white/10 hover:bg-white/20 text-purple-300 border border-purple-500/30 text-[11px] font-bold transition flex items-center justify-center gap-1.5"
+                      >
+                        <i className="fas fa-external-link-alt text-xs"></i>
+                        <span>Open Offer Page</span>
+                      </a>
+                    </div>
+                  </div>
+
+                  {/* Action Button */}
+                  {adCountdown > 0 ? (
+                    <button
+                      disabled
+                      className="w-full py-3.5 rounded-2xl bg-slate-800 text-slate-400 font-extrabold text-xs uppercase tracking-wider flex items-center justify-center gap-2 border border-white/10 cursor-not-allowed opacity-90"
+                    >
+                      <i className="fas fa-spinner fa-spin text-purple-400 text-sm"></i>
+                      <span>WATCHING AD... PLEASE WAIT ({adCountdown}s)</span>
+                    </button>
+                  ) : (
+                    <button
+                      onClick={handleClaimAdReward}
+                      disabled={adWatchLoading}
+                      className="w-full py-4 rounded-2xl bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600 hover:brightness-110 text-slate-950 font-black text-xs sm:text-sm uppercase tracking-wider shadow-lg shadow-emerald-500/30 flex items-center justify-center gap-2 transition active:scale-95"
+                    >
+                      {adWatchLoading ? (
+                        <>
+                          <i className="fas fa-spinner fa-spin text-base"></i>
+                          <span>ADDING REWARD TO WALLET...</span>
+                        </>
+                      ) : (
+                        <>
+                          <i className="fas fa-gift text-base"></i>
+                          <span>CLAIM REWARD NOW (+৳ {(adEarnRewardPerAd || 0).toFixed(2)})</span>
+                        </>
+                      )}
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
           )}
 
           {/* SEARCH MODAL */}
@@ -6009,6 +8814,78 @@ export default function App() {
             </div>
           )}
 
+          {/* LUCKY SPIN WINNER MODAL */}
+          {showSpinWinModal && (
+            <div className="fixed inset-0 z-[110] bg-black/90 backdrop-blur-md flex items-center justify-center p-4 animate-fade-in">
+              <div className="bg-slate-900 border border-amber-500/50 rounded-3xl max-w-sm w-full p-6 text-center space-y-4 shadow-[0_0_60px_rgba(245,158,11,0.4)]">
+                <div className="w-16 h-16 rounded-3xl bg-gradient-to-br from-amber-400 to-yellow-500 text-slate-950 flex items-center justify-center text-3xl font-black mx-auto shadow-lg animate-bounce">
+                  <i className="fas fa-trophy"></i>
+                </div>
+
+                <div className="space-y-1">
+                  <span className="text-[10px] font-black uppercase text-amber-400 tracking-widest bg-amber-500/10 px-3 py-1 rounded-full border border-amber-500/20">
+                    🎉 LUCKY SPIN WINNER
+                  </span>
+                  <h3 className="font-black text-xl text-white pt-2">
+                    অভিনন্দন! আপনি জিতেছেন!
+                  </h3>
+                  <p className="text-3xl font-black text-amber-400 font-mono py-2">
+                    ৳ {wonSpinAmount.toFixed(2)}
+                  </p>
+                  <p className="text-xs text-slate-300">
+                    পুরস্কারটি সরাসরি আপনার মেইন ওয়ালেট ব্যালেন্সে যোগ করা হয়েছে!
+                  </p>
+                </div>
+
+                <button
+                  onClick={() => {
+                    setShowSpinWinModal(false);
+                    haptic('light');
+                  }}
+                  className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500 hover:brightness-110 text-slate-950 font-black text-xs uppercase tracking-wider shadow-lg shadow-amber-500/20 transition active:scale-95"
+                >
+                  <span>GREAT! CLAIM & CONTINUE (ধন্যবাদ)</span>
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* GOLD VIP SPIN WINNER MODAL */}
+          {showGoldSpinWinModal && (
+            <div className="fixed inset-0 z-[110] bg-black/90 backdrop-blur-md flex items-center justify-center p-4 animate-fade-in">
+              <div className="bg-slate-900 border border-yellow-400 rounded-3xl max-w-sm w-full p-6 text-center space-y-4 shadow-[0_0_70px_rgba(234,179,8,0.5)]">
+                <div className="w-20 h-20 rounded-3xl bg-gradient-to-br from-yellow-300 via-amber-400 to-yellow-600 text-slate-950 flex items-center justify-center text-4xl font-black mx-auto shadow-xl animate-bounce border-2 border-white">
+                  <i className="fas fa-crown"></i>
+                </div>
+
+                <div className="space-y-1">
+                  <span className="text-[10px] font-black uppercase text-yellow-300 tracking-widest bg-yellow-500/20 px-3.5 py-1 rounded-full border border-yellow-500/40">
+                    🏆 GOLD VIP SPIN WINNER
+                  </span>
+                  <h3 className="font-black text-xl text-yellow-300 pt-2">
+                    অভিনন্দন! গোল্ড স্পিন পুরষ্কার!
+                  </h3>
+                  <p className="text-4xl font-black text-yellow-400 font-mono py-2 filter drop-shadow-[0_2px_10px_rgba(234,179,8,0.5)]">
+                    ৳ {wonGoldSpinAmount.toFixed(2)}
+                  </p>
+                  <p className="text-xs text-slate-300">
+                    গোল্ড স্পিন পুরষ্কারটি সফলভাবে আপনার মেইন ওয়ালেট ব্যালেন্সে যোগ করা হয়েছে!
+                  </p>
+                </div>
+
+                <button
+                  onClick={() => {
+                    setShowGoldSpinWinModal(false);
+                    haptic('light');
+                  }}
+                  className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-yellow-300 via-amber-400 to-yellow-500 hover:brightness-110 text-slate-950 font-black text-xs uppercase tracking-wider shadow-lg shadow-yellow-500/30 transition active:scale-95"
+                >
+                  <span>CLAIM GOLD REWARD (ধন্যবাদ)</span>
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* LIGHTBOX FULLSCREEN SCREENSHOT PREVIEW MODAL */}
           {selectedScreenshotPreview && (
             <div className="fixed inset-0 z-[100] bg-black/95 backdrop-blur-xl flex flex-col items-center justify-center p-3 animate-fade-in">
@@ -6227,6 +9104,16 @@ export default function App() {
             >
               <i className="fas fa-list-check"></i>
               <span>Orders</span>
+            </div>
+            <div
+              className={`nav-item-premium ${activeTab === 'tasks' ? 'active' : ''}`}
+              onClick={() => {
+                setActiveTab('tasks');
+                haptic('light');
+              }}
+            >
+              <i className="fas fa-calendar-check text-amber-400"></i>
+              <span>Tasks</span>
             </div>
             <div
               className={`nav-item-premium ${activeTab === 'funds' ? 'active' : ''}`}
