@@ -1218,7 +1218,7 @@ export default function App() {
           if (desc.toLowerCase().includes('user not found') || desc.toLowerCase().includes('participant') || desc.toLowerCase().includes('member not found')) {
             errorsMap[i] = 'মেম্বারশিপ খুঁজে পাওয়া যায়নি! চ্যানেলে জয়েন করুন।';
           } else if (desc.toLowerCase().includes('integer') || desc.toLowerCase().includes('invalid user_id')) {
-            errorsMap[i] = 'মেম্বারশিপ চেকের জন্য সংখ্যাভিত্তিক Telegram User ID দিন (যেমন: 8479465879)';
+            errorsMap[i] = 'মেম্বারশিপ চেকের জন্য সংখ্যাভিত্তিক Telegram User ID দিন (যেমন: 1234567890)';
           } else {
             errorsMap[i] = desc;
           }
@@ -9345,14 +9345,14 @@ export default function App() {
                     <input
                       type="text"
                       className="input-modern text-xs font-mono pl-9"
-                      placeholder="e.g. 8479465879 or @username"
+                      placeholder="e.g. 1234567890 or @username"
                       value={userTgInputId}
                       onChange={(e) => setUserTgInputId(e.target.value)}
                     />
                     <i className="fab fa-telegram text-sky-400 absolute left-3 top-3 text-xs"></i>
                   </div>
                   <p className="text-[10px] text-slate-400 leading-tight">
-                    💡 টেলিগ্রাম থেকে আইডি পেতে <a href="https://t.me/userinfobot" target="_blank" rel="noreferrer" className="text-amber-400 underline font-bold">@userinfobot</a> বা <a href="https://t.me/RF_SMM_PRO_BOT" target="_blank" rel="noreferrer" className="text-amber-400 underline font-bold">@RF_SMM_PRO_BOT</a> এ মেসেজ দিয়ে আইডি কপি করে নিন।
+                    💡 টেলিগ্রাম থেকে আইডি পেতে <a href="https://t.me/userinfobot" target="_blank" rel="noreferrer" className="text-amber-400 underline font-bold">@userinfobot</a> এ মেসেজ দিয়ে আইডি কপি করে নিন।
                   </p>
                 </div>
 
