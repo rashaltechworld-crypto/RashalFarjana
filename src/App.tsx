@@ -84,6 +84,66 @@ export interface TaskItem {
   image?: string;
 }
 
+export type ThemeType = 'default' | 'emerald' | 'purple' | 'crimson' | 'light';
+
+export interface ThemeOption {
+  id: ThemeType;
+  name: string;
+  bnName: string;
+  icon: string;
+  bgGradient: string;
+  colorClass: string;
+  badgeBg: string;
+}
+
+export const THEMES: ThemeOption[] = [
+  {
+    id: 'default',
+    name: 'Dark Royal (Gold/Navy)',
+    bnName: 'ডার্ক রয়্যাল (গোল্ড ও নেভি)',
+    icon: 'fas fa-moon',
+    bgGradient: 'from-blue-600 to-amber-500',
+    colorClass: 'text-amber-400',
+    badgeBg: 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+  },
+  {
+    id: 'emerald',
+    name: 'Emerald Mint (Green Cash)',
+    bnName: 'ইমারেল্ড মিন্ট (ক্যাশ গ্রিন)',
+    icon: 'fas fa-gem',
+    bgGradient: 'from-emerald-600 to-teal-400',
+    colorClass: 'text-emerald-400',
+    badgeBg: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+  },
+  {
+    id: 'purple',
+    name: 'Cyber Violet (Neon Purple)',
+    bnName: 'সাইবার ভায়োলেট (নিঅন পার্পল)',
+    icon: 'fas fa-bolt',
+    bgGradient: 'from-purple-600 to-pink-500',
+    colorClass: 'text-purple-400',
+    badgeBg: 'bg-purple-500/20 text-purple-300 border-purple-500/30'
+  },
+  {
+    id: 'crimson',
+    name: 'Ruby Crimson (Sunset Red)',
+    bnName: 'রুবি ক্রিমসন (সানসেট রেড)',
+    icon: 'fas fa-fire',
+    bgGradient: 'from-rose-600 to-orange-500',
+    colorClass: 'text-rose-400',
+    badgeBg: 'bg-rose-500/20 text-rose-300 border-rose-500/30'
+  },
+  {
+    id: 'light',
+    name: 'Pearl Light (Clean White)',
+    bnName: 'পার্ল লাইট (ক্লিন হোয়াইট)',
+    icon: 'fas fa-sun',
+    bgGradient: 'from-sky-500 to-blue-600',
+    colorClass: 'text-blue-500',
+    badgeBg: 'bg-sky-500/20 text-sky-400 border-sky-500/30'
+  }
+];
+
 // Image compression helper to support up to 5 screenshots
 const compressImageToBase64 = (file: File, maxWidth = 900, maxHeight = 900, quality = 0.75): Promise<string> => {
   return new Promise((resolve, reject) => {
@@ -173,6 +233,15 @@ function getPlatformMeta(name: string) {
   return { id: 'smm', name: 'SMM Service', icon: 'fas fa-rocket', color: '#3B82F6', bg: 'from-blue-500/20 to-indigo-500/10' };
 }
 
+const PRESET_AVATARS = [
+  { id: 'av1', url: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=300&q=80', label: 'Avatar 1' },
+  { id: 'av2', url: 'https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?auto=format&fit=crop&w=300&q=80', label: 'Avatar 2' },
+  { id: 'av3', url: 'https://images.unsplash.com/photo-1580489944761-15a19d654956?auto=format&fit=crop&w=300&q=80', label: 'Avatar 3' },
+  { id: 'av4', url: 'https://images.unsplash.com/photo-1628157582853-a796fa650a6a?auto=format&fit=crop&w=300&q=80', label: 'Avatar 4' },
+  { id: 'av5', url: 'https://images.unsplash.com/photo-1633332755192-727a05c4013d?auto=format&fit=crop&w=300&q=80', label: 'Avatar 5' },
+  { id: 'av6', url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80', label: 'Avatar 6' }
+];
+
 export default function App() {
   // Splash & Auth State
   const [showSplash, setShowSplash] = useState(true);
@@ -199,6 +268,17 @@ export default function App() {
 
   // Main App State
   const [activeTab, setActiveTab] = useState<'home' | 'orders' | 'funds' | 'profile' | 'admin'>('home');
+  const [currentTheme, setCurrentTheme] = useState<ThemeType>(() => {
+    const saved = localStorage.getItem('smm_app_theme') as ThemeType;
+    return saved || 'default';
+  });
+  const [showThemeModal, setShowThemeModal] = useState(false);
+
+  // Sync theme class to document body
+  useEffect(() => {
+    document.body.className = `theme-${currentTheme}${currentTheme === 'light' ? ' light-theme' : ''}`;
+    localStorage.setItem('smm_app_theme', currentTheme);
+  }, [currentTheme]);
   const [userBalance, setUserBalance] = useState(0);
   const [userTotalOrders, setUserTotalOrders] = useState(0);
   const [userPhotoURL, setUserPhotoURL] = useState<string | null>(null);
@@ -363,7 +443,7 @@ export default function App() {
           if (prev <= 1) {
             clearInterval(timer);
             setAdCanClaim(true);
-            haptic('medium');
+            haptic('heavy');
             return 0;
           }
           return prev - 1;
@@ -617,7 +697,7 @@ export default function App() {
 
     if (userLastClaim === todayStr) {
       showToast('⚠️ আপনি আজকের ডেইলি বোনাস ইতিমধ্যে নিয়ে নিয়েছেন! আগামীকাল আবার ক্লেইম করতে পারবেন।', 'info');
-      haptic('warning');
+      haptic('heavy');
       return;
     }
 
@@ -720,6 +800,18 @@ export default function App() {
         });
       }
 
+      // Sync promo code usage to Firestore
+      if (targetPromo.id) {
+        try {
+          await updateDoc(doc(db, 'promo_codes', targetPromo.id), {
+            usedCount: updatedUsedCount,
+            usedByUsers: updatedUsedUsers
+          });
+        } catch (e) {
+          console.error('Error updating promo_codes doc in Firestore:', e);
+        }
+      }
+
       showToast(`🎉 অভিনন্দন! ৳ ${rewardAmt.toFixed(2)} প্রোমো কোড বোনাস রিডিম সফল হয়েছে!`, 'success');
       haptic('success');
 
@@ -740,7 +832,7 @@ export default function App() {
     }
   };
 
-  const handleCreatePromoCode = () => {
+  const handleCreatePromoCode = async () => {
     const codeStr = newPromoCode.trim().toUpperCase();
     const rewardVal = parseFloat(newPromoReward) || 10;
     const maxUsesVal = parseInt(newPromoMaxUses, 10) || 50;
@@ -755,8 +847,9 @@ export default function App() {
       return;
     }
 
+    const docId = 'promo_' + Date.now();
     const newObj = {
-      id: 'p_' + Date.now(),
+      id: docId,
       code: codeStr,
       reward: rewardVal,
       maxUses: maxUsesVal,
@@ -764,19 +857,30 @@ export default function App() {
       usedByUsers: []
     };
 
-    setPromoCodes((prev) => [newObj, ...prev]);
-    setNewPromoCode('');
-    setNewPromoReward('10');
-    setNewPromoMaxUses('50');
-    showToast(`✅ নতুন প্রোমো কোড "${codeStr}" তৈরি হয়েছে!`, 'success');
-    haptic('success');
+    try {
+      await setDoc(doc(db, 'promo_codes', docId), newObj);
+      setNewPromoCode('');
+      setNewPromoReward('10');
+      setNewPromoMaxUses('50');
+      showToast(`✅ নতুন প্রোমো কোড "${codeStr}" সফলভাবে ফায়ারবেসে সেভ হয়েছে!`, 'success');
+      haptic('success');
+    } catch (e: any) {
+      console.error('Error creating promo code in Firestore:', e);
+      showToast('প্রোমো কোড সেভ করতে সমস্যা: ' + e.message, 'error');
+    }
   };
 
-  const handleDeletePromoCode = (id: string, code: string) => {
+  const handleDeletePromoCode = async (id: string, code: string) => {
     if (confirm(`আপনি কি সত্যিই "${code}" প্রোমো কোডটি ডিলিট করতে চান?`)) {
-      setPromoCodes((prev) => prev.filter((p) => p.id !== id));
-      showToast(`🗑️ "${code}" প্রোমো কোড মুছে ফেলা হয়েছে!`, 'info');
-      haptic('light');
+      try {
+        await deleteDoc(doc(db, 'promo_codes', id));
+        setPromoCodes((prev) => prev.filter((p) => p.id !== id));
+        showToast(`🗑️ "${code}" প্রোমো কোড ফায়ারবেস থেকে মুছে ফেলা হয়েছে!`, 'info');
+        haptic('light');
+      } catch (e: any) {
+        console.error('Error deleting promo code from Firestore:', e);
+        showToast('ডিলিট করতে সমস্যা: ' + e.message, 'error');
+      }
     }
   };
 
@@ -852,7 +956,7 @@ export default function App() {
       }
 
       await sendTelegramTaskNotification('ad', {
-        userName: userNameInput || currentUser?.displayName || 'User',
+        userName: currentUser?.name || currentUser?.username || 'User',
         userId: currentUser?.uid || 'N/A',
         reward: rewardAmt
       });
@@ -953,7 +1057,7 @@ export default function App() {
       }
 
       await sendTelegramTaskNotification('spin', {
-        userName: userNameInput || currentUser?.displayName || 'User',
+        userName: currentUser?.name || currentUser?.username || 'User',
         userId: currentUser?.uid || 'N/A',
         reward: rewardAmt,
         usedCount: newCount,
@@ -1055,7 +1159,7 @@ export default function App() {
       }
 
       await sendTelegramTaskNotification('gold_spin', {
-        userName: userNameInput || currentUser?.displayName || 'User',
+        userName: currentUser?.name || currentUser?.username || 'User',
         userId: currentUser?.uid || 'N/A',
         reward: rewardAmt,
         usedCount: newCount,
@@ -1594,6 +1698,54 @@ export default function App() {
     return () => unsub();
   }, []);
 
+  // Helper to save task configuration (Lucky Spin, Gold Spin, Daily Check-in, Ad Earn, Promo) to Firestore
+  const saveTaskConfigToFirestore = async (updates: Record<string, any>) => {
+    try {
+      await setDoc(doc(db, 'settings', 'tasks_config'), updates, { merge: true });
+    } catch (e: any) {
+      console.error('Error saving tasks config to Firestore:', e);
+      showToast('⚠️ ফায়ারবেসে সেভ করতে সমস্যা: ' + (e.message || 'Error'), 'error');
+    }
+  };
+
+  // Sync Task Settings (Lucky Spin, Gold Spin, Daily Check-in, Ad Earn, Promo) from Firestore
+  useEffect(() => {
+    const unsub = onSnapshot(doc(db, 'settings', 'tasks_config'), (docSnap) => {
+      if (docSnap.exists()) {
+        const d = docSnap.data();
+        if (d.luckySpinEnabled !== undefined) setLuckySpinEnabled(Boolean(d.luckySpinEnabled));
+        if (d.luckySpinDailyMaxLimit !== undefined) setLuckySpinDailyMaxLimit(Number(d.luckySpinDailyMaxLimit) || 50);
+        if (d.goldSpinEnabled !== undefined) setGoldSpinEnabled(Boolean(d.goldSpinEnabled));
+        if (d.goldSpinMinBalance !== undefined) setGoldSpinMinBalance(Number(d.goldSpinMinBalance) || 50);
+        if (d.goldSpinDailyMaxLimit !== undefined) setGoldSpinDailyMaxLimit(Number(d.goldSpinDailyMaxLimit) || 20);
+        if (d.dailyCheckInEnabled !== undefined) setDailyCheckInEnabled(Boolean(d.dailyCheckInEnabled));
+        if (d.dailyCheckInReward !== undefined) setDailyCheckInReward(Number(d.dailyCheckInReward) || 5.0);
+        if (d.adEarnEnabled !== undefined) setAdEarnEnabled(Boolean(d.adEarnEnabled));
+        if (d.adEarnRewardPerAd !== undefined) setAdEarnRewardPerAd(Number(d.adEarnRewardPerAd) || 0);
+        if (d.adEarnDailyMaxLimit !== undefined) setAdEarnDailyMaxLimit(Number(d.adEarnDailyMaxLimit) || 500);
+        if (d.promoCodeEnabled !== undefined) setPromoCodeEnabled(Boolean(d.promoCodeEnabled));
+      }
+    });
+    return () => unsub();
+  }, []);
+
+  // Sync Promo Codes from Firestore collection
+  useEffect(() => {
+    const q = query(collection(db, 'promo_codes'));
+    const unsub = onSnapshot(q, (snapshot) => {
+      const list: any[] = [];
+      snapshot.forEach((docSnap) => {
+        list.push({ id: docSnap.id, ...docSnap.data() });
+      });
+      if (list.length > 0) {
+        setPromoCodes(list);
+      }
+    }, (err) => {
+      console.error('Error listening to promo codes:', err);
+    });
+    return () => unsub();
+  }, []);
+
   // 2. Realtime User Info Sync
   useEffect(() => {
     if (!isLoggedIn || !currentUser?.uid) return;
@@ -1955,6 +2107,31 @@ export default function App() {
       haptic('light');
     } catch (err) {
       console.error('Error removing profile photo:', err);
+    } finally {
+      setProfileSubmitting(false);
+    }
+  };
+
+  // Select Preset Avatar
+  const handleSelectPresetAvatar = async (avatarUrl: string) => {
+    if (!currentUser?.uid) return;
+
+    try {
+      setProfileSubmitting(true);
+      setUserPhotoURL(avatarUrl);
+
+      const userRef = doc(db, 'users', currentUser.uid);
+      await setDoc(userRef, { photoURL: avatarUrl }, { merge: true });
+
+      const updatedUser = { ...currentUser, photoURL: avatarUrl };
+      setCurrentUser(updatedUser);
+      localStorage.setItem('smm_session', JSON.stringify(updatedUser));
+
+      showToast('✅ প্রোফাইল পিকচার সিলেক্ট করা হয়েছে!', 'success');
+      haptic('success');
+    } catch (err: any) {
+      console.error('Error setting preset photo:', err);
+      showToast('প্রোফাইল পিকচার সেট করতে সমস্যা হয়েছে', 'error');
     } finally {
       setProfileSubmitting(false);
     }
@@ -2400,6 +2577,7 @@ export default function App() {
     const tgUser = tg.initDataUnsafe.user;
     const username = (tgUser.username || `tg_${tgUser.id}`).toLowerCase().replace(/[^a-z0-9_]/g, '');
     const name = tgUser.first_name || 'Telegram User';
+    const tgPhoto = tgUser.photo_url || '';
 
     try {
       const q = query(collection(db, 'auth_users'), where('telegramId', '==', tgUser.id));
@@ -2408,7 +2586,14 @@ export default function App() {
       if (!snap.empty) {
         const userDoc = snap.docs[0];
         const userData = userDoc.data();
-        const session = { uid: userDoc.id, username: userData.username, name: userData.name };
+        const photoToUse = tgPhoto || userData.photoURL || '';
+
+        if (photoToUse) {
+          setUserPhotoURL(photoToUse);
+          await setDoc(doc(db, 'users', userDoc.id), { photoURL: photoToUse }, { merge: true });
+        }
+
+        const session = { uid: userDoc.id, username: userData.username, name: userData.name, photoURL: photoToUse };
         currentUserSessionLogin(session);
         showToast(`Welcome, ${userData.name}!`, 'success');
       } else {
@@ -2422,16 +2607,18 @@ export default function App() {
           name,
           password: '',
           createdAt: serverTimestamp(),
-          telegramId: tgUser.id
+          telegramId: tgUser.id,
+          photoURL: tgPhoto
         });
 
         await setDoc(
           doc(db, 'users', uid),
-          { name, balance: 0, total_orders: 0, createdAt: serverTimestamp() },
+          { name, balance: 0, total_orders: 0, photoURL: tgPhoto, createdAt: serverTimestamp() },
           { merge: true }
         );
 
-        const session = { uid, username: finalUsername, name };
+        if (tgPhoto) setUserPhotoURL(tgPhoto);
+        const session = { uid, username: finalUsername, name, photoURL: tgPhoto };
         currentUserSessionLogin(session);
         showToast('Telegram account connected!', 'success');
       }
@@ -4135,7 +4322,7 @@ export default function App() {
 
                     <button
                       onClick={() => {
-                        setActiveTab('deposit');
+                        setActiveTab('funds');
                         showToast('💰 ডিপোজিট পেজে রিডাইরেক্ট করা হচ্ছে...', 'info');
                         haptic('light');
                       }}
@@ -5119,18 +5306,6 @@ export default function App() {
                     />
                     <i className="fas fa-camera text-sm"></i>
                   </label>
-
-                  {/* Remove Photo option if custom photo exists */}
-                  {(userPhotoURL || currentUser?.photoURL) && (
-                    <button
-                      onClick={handleRemoveProfilePic}
-                      disabled={profileSubmitting}
-                      className="absolute -top-2 -right-2 w-7 h-7 rounded-full bg-red-600/90 text-white flex items-center justify-center text-xs shadow-md hover:scale-110 transition border border-white/20"
-                      title="Remove Photo"
-                    >
-                      <i className="fas fa-times"></i>
-                    </button>
-                  )}
                 </div>
 
                 {/* User Name & Name Edit Form */}
@@ -5182,6 +5357,51 @@ export default function App() {
                     <i className="fas fa-shield-check text-emerald-400"></i>
                     <span>VERIFIED USER</span>
                   </span>
+                </div>
+              </div>
+
+              {/* Preset Avatars Selection Card */}
+              <div className="glass-card p-4 sm:p-5 space-y-3 border border-amber-500/20 bg-slate-900/80 rounded-2xl">
+                <div className="flex items-center justify-between border-b border-white/10 pb-2">
+                  <div className="flex items-center gap-2">
+                    <i className="fas fa-user-circle text-amber-400 text-sm"></i>
+                    <h4 className="font-extrabold text-xs text-white uppercase tracking-wider">
+                      Choose Avatar (প্রোফাইল পিকচার গ্যালারি)
+                    </h4>
+                  </div>
+                  <span className="text-[10px] text-amber-300 font-bold bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
+                    6 Avatars
+                  </span>
+                </div>
+
+                <p className="text-[11px] text-slate-300">
+                  নিচের ৬টি অবতার থেকে যেকোনো একটি পছন্দ করে সিলেক্ট করুন:
+                </p>
+
+                <div className="grid grid-cols-6 gap-2 sm:gap-3 pt-1">
+                  {PRESET_AVATARS.map((av, idx) => {
+                    const isSelected = (userPhotoURL || currentUser?.photoURL) === av.url;
+                    return (
+                      <button
+                        key={av.id}
+                        onClick={() => handleSelectPresetAvatar(av.url)}
+                        disabled={profileSubmitting}
+                        className={`relative aspect-square rounded-2xl overflow-hidden border-2 transition active:scale-95 group ${
+                          isSelected
+                            ? 'border-amber-400 ring-4 ring-amber-500/30 scale-105 shadow-lg'
+                            : 'border-white/10 hover:border-amber-400/50 hover:scale-105'
+                        }`}
+                        title={`Select Avatar ${idx + 1}`}
+                      >
+                        <img src={av.url} alt={`Avatar ${idx + 1}`} className="w-full h-full object-cover" />
+                        {isSelected && (
+                          <div className="absolute inset-0 bg-amber-500/25 flex items-center justify-center">
+                            <i className="fas fa-check-circle text-amber-300 text-xs drop-shadow"></i>
+                          </div>
+                        )}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -5253,6 +5473,60 @@ export default function App() {
                   >
                     <i className="fas fa-list"></i> MY ORDERS (অর্ডার)
                   </button>
+                </div>
+              </div>
+
+              {/* 🎨 APP COLOR THEME SELECTOR CARD IN PROFILE */}
+              <div className="glass-card p-4 space-y-3.5 border border-purple-500/30 bg-slate-900/90 shadow-xl">
+                <div className="flex items-center justify-between border-b border-white/10 pb-2.5">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-9 h-9 rounded-2xl bg-purple-500/20 text-purple-400 flex items-center justify-center text-base border border-purple-500/30">
+                      <i className="fas fa-palette"></i>
+                    </div>
+                    <div>
+                      <h4 className="font-black text-xs text-white">App Color Theme (৫টি কালার থিম)</h4>
+                      <p className="text-[10px] text-slate-400">আপনার পছন্দের কালার থিম সিলেক্ট করুন</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setShowThemeModal(true);
+                      haptic('light');
+                    }}
+                    className="text-[10px] font-extrabold text-purple-300 bg-purple-500/20 hover:bg-purple-500/30 px-2.5 py-1 rounded-xl border border-purple-500/30 flex items-center gap-1 active:scale-95 transition"
+                  >
+                    <span>সকল থিম (All)</span>
+                    <i className="fas fa-chevron-right text-[8px]"></i>
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-5 gap-2 pt-1">
+                  {THEMES.map((t) => {
+                    const isSel = currentTheme === t.id;
+                    return (
+                      <button
+                        key={t.id}
+                        onClick={() => {
+                          setCurrentTheme(t.id);
+                          haptic('light');
+                          showToast(`🎨 থিম পরিবর্তন করা হয়েছে: ${t.bnName}`, 'success');
+                        }}
+                        className={`p-2.5 rounded-2xl flex flex-col items-center gap-1.5 transition active:scale-95 border relative ${
+                          isSel
+                            ? 'bg-purple-500/20 border-purple-400 ring-2 ring-purple-500/50 shadow-[0_0_15px_rgba(168,85,247,0.3)]'
+                            : 'bg-slate-950/70 border-white/10 hover:border-white/20'
+                        }`}
+                        title={t.bnName}
+                      >
+                        <div className={`w-7 h-7 rounded-xl bg-gradient-to-r ${t.bgGradient} shadow-md flex items-center justify-center text-white text-[10px]`}>
+                          {isSel ? <i className="fas fa-check"></i> : <i className={t.icon}></i>}
+                        </div>
+                        <span className="text-[9px] font-extrabold text-slate-200 truncate w-full text-center">
+                          {t.id.toUpperCase()}
+                        </span>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -5613,11 +5887,13 @@ export default function App() {
 
                       <button
                         onClick={() => {
-                          setLuckySpinEnabled(!luckySpinEnabled);
+                          const nextVal = !luckySpinEnabled;
+                          setLuckySpinEnabled(nextVal);
+                          saveTaskConfigToFirestore({ luckySpinEnabled: nextVal });
                           showToast(
-                            luckySpinEnabled
-                              ? '🔴 লকি স্পিন সিস্টেম বন্ধ করা হয়েছে'
-                              : '🟢 লকি স্পিন সিস্টেম চালু করা হয়েছে',
+                            nextVal
+                              ? '🟢 লকি স্পিন সিস্টেম চালু করা হয়েছে'
+                              : '🔴 লকি স্পিন সিস্টেম বন্ধ করা হয়েছে',
                             'info'
                           );
                           haptic('heavy');
@@ -5677,7 +5953,8 @@ export default function App() {
                         />
                         <button
                           onClick={() => {
-                            showToast(`✅ দৈনিক সর্বোচ্চ স্পিন লিমিট ${luckySpinDailyMaxLimit}টি আপডেট হয়েছে!`, 'success');
+                            saveTaskConfigToFirestore({ luckySpinDailyMaxLimit });
+                            showToast(`✅ দৈনিক সর্বোচ্চ স্পিন লিমিট ${luckySpinDailyMaxLimit}টি আপডেট ও ফায়ারবেসে সেভ হয়েছে!`, 'success');
                             haptic('success');
                           }}
                           className="px-4 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:brightness-110 text-white font-extrabold text-xs rounded-xl shadow-md transition active:scale-95 shrink-0"
@@ -5721,11 +5998,13 @@ export default function App() {
 
                       <button
                         onClick={() => {
-                          setGoldSpinEnabled(!goldSpinEnabled);
+                          const nextVal = !goldSpinEnabled;
+                          setGoldSpinEnabled(nextVal);
+                          saveTaskConfigToFirestore({ goldSpinEnabled: nextVal });
                           showToast(
-                            goldSpinEnabled
-                              ? '🔴 গোল্ড স্পিন সিস্টেম বন্ধ করা হয়েছে'
-                              : '🟢 গোল্ড স্পিন সিস্টেম চালু করা হয়েছে',
+                            nextVal
+                              ? '🟢 গোল্ড স্পিন সিস্টেম চালু করা হয়েছে'
+                              : '🔴 গোল্ড স্পিন সিস্টেম বন্ধ করা হয়েছে',
                             'info'
                           );
                           haptic('heavy');
@@ -5757,7 +6036,8 @@ export default function App() {
                           />
                           <button
                             onClick={() => {
-                              showToast(`✅ গোল্ড স্পিন মিনিমাম ব্যালেন্স ৳ ${goldSpinMinBalance} সেট হয়েছে!`, 'success');
+                              saveTaskConfigToFirestore({ goldSpinMinBalance });
+                              showToast(`✅ গোল্ড স্পিন মিনিমাম ব্যালেন্স ৳ ${goldSpinMinBalance} সেভ হয়েছে!`, 'success');
                               haptic('success');
                             }}
                             className="px-3 py-2 bg-yellow-500 text-slate-950 hover:bg-yellow-400 font-extrabold text-xs rounded-xl shadow transition active:scale-95 shrink-0"
@@ -5783,7 +6063,8 @@ export default function App() {
                           />
                           <button
                             onClick={() => {
-                              showToast(`✅ দৈনিক গোল্ড স্পিন লিমিট ${goldSpinDailyMaxLimit}টি সেট হয়েছে!`, 'success');
+                              saveTaskConfigToFirestore({ goldSpinDailyMaxLimit });
+                              showToast(`✅ দৈনিক গোল্ড স্পিন লিমিট ${goldSpinDailyMaxLimit}টি সেভ হয়েছে!`, 'success');
                               haptic('success');
                             }}
                             className="px-3 py-2 bg-yellow-500 text-slate-950 hover:bg-yellow-400 font-extrabold text-xs rounded-xl shadow transition active:scale-95 shrink-0"
@@ -5830,11 +6111,13 @@ export default function App() {
 
                       <button
                         onClick={() => {
-                          setDailyCheckInEnabled(!dailyCheckInEnabled);
+                          const nextVal = !dailyCheckInEnabled;
+                          setDailyCheckInEnabled(nextVal);
+                          saveTaskConfigToFirestore({ dailyCheckInEnabled: nextVal });
                           showToast(
-                            dailyCheckInEnabled
-                              ? '🔴 ডেইলি চেক-ইন বোনাস বন্ধ করা হয়েছে'
-                              : '🟢 ডেইলি চেক-ইন বোনাস চালু করা হয়েছে',
+                            nextVal
+                              ? '🟢 ডেইলি চেক-ইন বোনাস চালু করা হয়েছে'
+                              : '🔴 ডেইলি চেক-ইন বোনাস বন্ধ করা হয়েছে',
                             'info'
                           );
                           haptic('heavy');
@@ -5913,6 +6196,7 @@ export default function App() {
                               key={amt}
                               onClick={() => {
                                 setDailyCheckInReward(amt);
+                                saveTaskConfigToFirestore({ dailyCheckInReward: amt });
                                 showToast(`✅ Daily Reward Set to ৳ ${amt}.00`, 'info');
                                 haptic('light');
                               }}
@@ -5930,6 +6214,7 @@ export default function App() {
 
                       <button
                         onClick={() => {
+                          saveTaskConfigToFirestore({ dailyCheckInReward });
                           showToast(`✅ ডেইলি চেক-ইন বোনাস ৳ ${(dailyCheckInReward || 0).toFixed(2)} সফলভাবে সেভ হয়েছে!`, 'success');
                           haptic('success');
                         }}
@@ -5970,7 +6255,7 @@ export default function App() {
                           localStorage.removeItem(key);
                           setLastDailyCheckInDate('');
                           showToast('🔄 টেস্ট কুলডাউন রিসেট করা হয়েছে! এখন আবার ক্লেইম টেস্ট করতে পারবেন।', 'success');
-                          haptic('medium');
+                          haptic('heavy');
                         }}
                         className="p-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/30 font-extrabold text-xs flex items-center justify-center gap-2 shadow-md transition active:scale-95"
                       >
@@ -6011,11 +6296,13 @@ export default function App() {
 
                       <button
                         onClick={() => {
-                          setAdEarnEnabled(!adEarnEnabled);
+                          const nextVal = !adEarnEnabled;
+                          setAdEarnEnabled(nextVal);
+                          saveTaskConfigToFirestore({ adEarnEnabled: nextVal });
                           showToast(
-                            adEarnEnabled
-                              ? '🔴 এড দেখে আয় সিস্টেম বন্ধ করা হয়েছে'
-                              : '🟢 এড দেখে আয় সিস্টেম চালু করা হয়েছে',
+                            nextVal
+                              ? '🟢 এড দেখে আয় সিস্টেম চালু করা হয়েছে'
+                              : '🔴 এড দেখে আয় সিস্টেম বন্ধ করা হয়েছে',
                             'info'
                           );
                           haptic('heavy');
@@ -6094,6 +6381,7 @@ export default function App() {
                                 key={amt}
                                 onClick={() => {
                                   setAdEarnRewardPerAd(amt);
+                                  saveTaskConfigToFirestore({ adEarnRewardPerAd: amt });
                                   showToast(`✅ Ad Reward set to ৳ ${amt.toFixed(2)}`, 'info');
                                   haptic('light');
                                 }}
@@ -6141,6 +6429,7 @@ export default function App() {
                                 key={lim}
                                 onClick={() => {
                                   setAdEarnDailyMaxLimit(lim);
+                                  saveTaskConfigToFirestore({ adEarnDailyMaxLimit: lim });
                                   showToast(`✅ Daily limit set to ${lim} Ads`, 'info');
                                   haptic('light');
                                 }}
@@ -6160,6 +6449,11 @@ export default function App() {
 
                     <button
                       onClick={() => {
+                        saveTaskConfigToFirestore({
+                          adEarnEnabled,
+                          adEarnRewardPerAd,
+                          adEarnDailyMaxLimit
+                        });
                         showToast(`✅ এড রিওয়ার্ড ৳ ${(adEarnRewardPerAd || 0).toFixed(2)} এবং লিমিট ${adEarnDailyMaxLimit} এড সেভ হয়েছে!`, 'success');
                         haptic('success');
                       }}
@@ -7618,8 +7912,10 @@ export default function App() {
 
                       <button
                         onClick={() => {
-                          setDailyCheckInEnabled(!dailyCheckInEnabled);
-                          showToast(dailyCheckInEnabled ? '🔴 ডেইলি চেকিং বোনাস বন্ধ করা হয়েছে' : '🟢 ডেইলি চেকিং বোনাস চালু করা হয়েছে', 'info');
+                          const nextVal = !dailyCheckInEnabled;
+                          setDailyCheckInEnabled(nextVal);
+                          saveTaskConfigToFirestore({ dailyCheckInEnabled: nextVal });
+                          showToast(nextVal ? '🟢 ডেইলি চেকিং বোনাস চালু করা হয়েছে' : '🔴 ডেইলি চেকিং বোনাস বন্ধ করা হয়েছে', 'info');
                           haptic('light');
                         }}
                         className={`px-3 py-1.5 rounded-xl font-extrabold text-xs transition border ${
@@ -7646,6 +7942,7 @@ export default function App() {
                       <div className="flex items-end">
                         <button
                           onClick={() => {
+                            saveTaskConfigToFirestore({ dailyCheckInReward });
                             showToast(`✅ ডেইলি চেকিং বোনাস ৳ ${dailyCheckInReward.toFixed(2)} সেট করা হয়েছে!`, 'success');
                             haptic('success');
                           }}
@@ -7672,8 +7969,10 @@ export default function App() {
 
                       <button
                         onClick={() => {
-                          setPromoCodeEnabled(!promoCodeEnabled);
-                          showToast(promoCodeEnabled ? '🔴 প্রোমো কোড রিডিম সিস্টেম বন্ধ করা হয়েছে' : '🟢 প্রোমো কোড রিডিম সিস্টেম চালু করা হয়েছে', 'info');
+                          const nextVal = !promoCodeEnabled;
+                          setPromoCodeEnabled(nextVal);
+                          saveTaskConfigToFirestore({ promoCodeEnabled: nextVal });
+                          showToast(nextVal ? '🟢 প্রোমো কোড রিডিম সিস্টেম চালু করা হয়েছে' : '🔴 প্রোমো কোড রিডিম সিস্টেম বন্ধ করা হয়েছে', 'info');
                           haptic('light');
                         }}
                         className={`px-3 py-1.5 rounded-xl font-extrabold text-xs transition border ${
@@ -7789,8 +8088,10 @@ export default function App() {
 
                       <button
                         onClick={() => {
-                          setAdEarnEnabled(!adEarnEnabled);
-                          showToast(adEarnEnabled ? '🔴 এড দেখে আয় সিস্টেম বন্ধ করা হয়েছে' : '🟢 এড দেখে আয় সিস্টেম চালু করা হয়েছে', 'info');
+                          const nextVal = !adEarnEnabled;
+                          setAdEarnEnabled(nextVal);
+                          saveTaskConfigToFirestore({ adEarnEnabled: nextVal });
+                          showToast(nextVal ? '🟢 এড দেখে আয় সিস্টেম চালু করা হয়েছে' : '🔴 এড দেখে আয় সিস্টেম বন্ধ করা হয়েছে', 'info');
                           haptic('light');
                         }}
                         className={`px-3 py-1.5 rounded-xl font-extrabold text-xs transition border ${
@@ -7830,6 +8131,11 @@ export default function App() {
 
                     <button
                       onClick={() => {
+                        saveTaskConfigToFirestore({
+                          adEarnEnabled,
+                          adEarnRewardPerAd,
+                          adEarnDailyMaxLimit
+                        });
                         showToast(`✅ এড রিওয়ার্ড ৳ ${adEarnRewardPerAd.toFixed(2)} এবং দৈনিক লিমিট ${adEarnDailyMaxLimit} সেভ করা হয়েছে!`, 'success');
                         haptic('success');
                       }}
@@ -7962,7 +8268,7 @@ export default function App() {
                           } else {
                             window.open('https://alwingulla.com/', '_blank');
                           }
-                          haptic('medium');
+                          haptic('light');
                         }}
                         className="w-full py-2 px-3 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-[11px] font-extrabold transition flex items-center justify-center gap-1.5 shadow"
                       >
@@ -8886,6 +9192,91 @@ export default function App() {
             </div>
           )}
 
+          {/* THEME COLOR SELECTOR MODAL */}
+          {showThemeModal && (
+            <div className="fixed inset-0 z-[80] bg-black/85 backdrop-blur-md flex flex-col justify-center p-3 sm:p-4 animate-fade-in">
+              <div className="bg-[#0b1329] border border-purple-500/40 rounded-3xl max-h-[92vh] flex flex-col overflow-hidden shadow-[0_0_60px_rgba(139,92,246,0.3)] w-full max-w-lg mx-auto">
+                {/* Modal Header */}
+                <div className="p-4 border-b border-white/10 flex items-center justify-between bg-slate-900/90">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-9 h-9 rounded-xl bg-purple-500/20 border border-purple-500/40 flex items-center justify-center text-purple-400 text-base">
+                      <i className="fas fa-palette"></i>
+                    </div>
+                    <div>
+                      <h3 className="font-extrabold text-sm text-white">App Theme Switcher (থিম সিলেক্টর)</h3>
+                      <p className="text-[10px] text-purple-300">আপনার পছন্দমত ৫টি কালার থিমের যেকোনো একটি বেছে নিন</p>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => {
+                      setShowThemeModal(false);
+                      haptic('light');
+                    }}
+                    className="w-8 h-8 rounded-xl bg-white/5 border border-white/10 text-slate-400 hover:text-white hover:bg-white/10 flex items-center justify-center text-xs transition active:scale-95"
+                  >
+                    <i className="fas fa-times"></i>
+                  </button>
+                </div>
+
+                {/* Theme Options */}
+                <div className="p-4 overflow-y-auto flex-1 min-h-0 space-y-3.5">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {THEMES.map((theme) => {
+                      const isActive = currentTheme === theme.id;
+                      return (
+                        <button
+                          key={theme.id}
+                          onClick={() => {
+                            setCurrentTheme(theme.id);
+                            haptic('light');
+                            showToast(`🎨 থিম পরিবর্তন করে '${theme.bnName}' করা হয়েছে!`, 'success');
+                          }}
+                          className={`p-3.5 rounded-2xl border text-left flex flex-col justify-between transition relative overflow-hidden active:scale-95 ${
+                            isActive
+                              ? 'bg-slate-900 border-2 border-purple-400 shadow-[0_0_20px_rgba(168,85,247,0.4)]'
+                              : 'bg-slate-950/70 border-white/10 hover:border-white/25'
+                          }`}
+                        >
+                          {/* Visual Preview Bar */}
+                          <div className={`h-2.5 w-full rounded-full bg-gradient-to-r ${theme.bgGradient} mb-3 shadow`}></div>
+
+                          <div className="flex items-center justify-between gap-2 mb-1">
+                            <div className="flex items-center gap-2">
+                              <i className={`${theme.icon} ${theme.colorClass} text-sm`}></i>
+                              <span className="font-black text-xs text-white">{theme.name}</span>
+                            </div>
+                            {isActive && (
+                              <span className="w-5 h-5 rounded-full bg-purple-500 text-black flex items-center justify-center text-[10px] font-bold">
+                                <i className="fas fa-check"></i>
+                              </span>
+                            )}
+                          </div>
+
+                          <p className="text-[10px] text-slate-400 font-medium mb-2">{theme.bnName}</p>
+
+                          <div className="flex items-center justify-between pt-2 border-t border-white/5">
+                            <span className={`text-[9px] font-extrabold px-2 py-0.5 rounded-lg border ${theme.badgeBg}`}>
+                              {isActive ? 'ACTIVE THEME' : 'SELECT THEME'}
+                            </span>
+                            <i className="fas fa-arrow-right text-[10px] text-slate-500"></i>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Footer Note */}
+                <div className="p-3 bg-slate-950/80 border-t border-white/10 text-center">
+                  <p className="text-[10px] text-slate-400">
+                    💡 আপনার সিলেক্ট করা থিমটি ডিভাইসে সেভ থাকবে।
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* LIGHTBOX FULLSCREEN SCREENSHOT PREVIEW MODAL */}
           {selectedScreenshotPreview && (
             <div className="fixed inset-0 z-[100] bg-black/95 backdrop-blur-xl flex flex-col items-center justify-center p-3 animate-fade-in">
@@ -9112,7 +9503,7 @@ export default function App() {
                 haptic('light');
               }}
             >
-              <i className="fas fa-calendar-check text-amber-400"></i>
+              <i className="fas fa-calendar-check"></i>
               <span>Tasks</span>
             </div>
             <div

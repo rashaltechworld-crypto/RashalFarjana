@@ -15,6 +15,71 @@
   --safe-bottom: env(safe-area-inset-bottom, 0px);
 }
 
+/* 1. Dark Royal (Default) */
+body.theme-default, body:not([class*="theme-"]) {
+  --primary: #3b82f6;
+  --primary-dark: #1d4ed8;
+  --bg-main: #030712;
+  --bg-card: rgba(17, 24, 39, 0.82);
+  --bg-input: rgba(31, 41, 55, 0.85);
+  --text-main: #f3f4f6;
+  --text-muted: #9ca3af;
+  --border-color: rgba(75, 85, 99, 0.2);
+  --glass-border: rgba(255, 255, 255, 0.08);
+}
+
+/* 2. Emerald Mint (Green Cash) */
+body.theme-emerald {
+  --primary: #10b981;
+  --primary-dark: #047857;
+  --bg-main: #021a12;
+  --bg-card: rgba(6, 44, 32, 0.82);
+  --bg-input: rgba(15, 66, 48, 0.85);
+  --text-main: #ecfdf5;
+  --text-muted: #6ee7b7;
+  --border-color: rgba(16, 185, 129, 0.25);
+  --glass-border: rgba(52, 211, 153, 0.15);
+}
+
+/* 3. Cyber Violet (Neon Purple) */
+body.theme-purple {
+  --primary: #8b5cf6;
+  --primary-dark: #6d28d9;
+  --bg-main: #0c071e;
+  --bg-card: rgba(26, 14, 51, 0.82);
+  --bg-input: rgba(43, 21, 82, 0.85);
+  --text-main: #f5f3ff;
+  --text-muted: #c4b5fd;
+  --border-color: rgba(139, 92, 246, 0.25);
+  --glass-border: rgba(167, 139, 250, 0.15);
+}
+
+/* 4. Ruby Crimson (Sunset Red) */
+body.theme-crimson {
+  --primary: #f43f5e;
+  --primary-dark: #be123c;
+  --bg-main: #17040a;
+  --bg-card: rgba(43, 10, 20, 0.82);
+  --bg-input: rgba(69, 15, 31, 0.85);
+  --text-main: #fff1f2;
+  --text-muted: #fda4af;
+  --border-color: rgba(244, 63, 94, 0.25);
+  --glass-border: rgba(251, 113, 133, 0.15);
+}
+
+/* 5. Pearl Light (Clean White) */
+body.theme-light, body.light-theme {
+  --primary: #2563eb;
+  --primary-dark: #1d4ed8;
+  --bg-main: #f8fafc;
+  --bg-card: rgba(255, 255, 255, 0.92);
+  --bg-input: rgba(241, 245, 249, 0.95);
+  --text-main: #0f172a;
+  --text-muted: #64748b;
+  --border-color: rgba(15, 23, 42, 0.1);
+  --glass-border: rgba(0, 0, 0, 0.08);
+}
+
 body {
   font-family: 'Plus Jakarta Sans', sans-serif;
   background: var(--bg-main);
@@ -23,16 +88,6 @@ body {
   min-height: 100vh;
   padding-top: var(--safe-top);
   padding-bottom: var(--safe-bottom);
-}
-
-body.light-theme {
-  --bg-main: #f8fafc;
-  --bg-card: rgba(255, 255, 255, 0.9);
-  --bg-input: rgba(241, 245, 249, 0.92);
-  --text-main: #0f172a;
-  --text-muted: #64748b;
-  --border-color: rgba(15, 23, 42, 0.08);
-  --glass-border: rgba(0, 0, 0, 0.04);
 }
 
 body::before {
