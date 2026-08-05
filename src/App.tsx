@@ -82,6 +82,7 @@ export interface TaskItem {
   link: string;
   icon?: string;
   image?: string;
+  maxUserLimit?: number; // 0 or undefined = unlimited
 }
 
 export type ThemeType = 'default' | 'emerald' | 'purple' | 'crimson' | 'light';
@@ -237,7 +238,7 @@ const PRESET_AVATARS = [
   { id: 'av1', url: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=300&q=80', label: 'Avatar 1' },
   { id: 'av2', url: 'https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?auto=format&fit=crop&w=300&q=80', label: 'Avatar 2' },
   { id: 'av3', url: 'https://images.unsplash.com/photo-1580489944761-15a19d654956?auto=format&fit=crop&w=300&q=80', label: 'Avatar 3' },
-  { id: 'av4', url: 'https://images.unsplash.com/photo-1628157582853-a796fa650a6a?auto=format&fit=crop&w=300&q=80', label: 'Avatar 4' },
+  { id: 'av4', url: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=300&q=80', label: 'Avatar 4' },
   { id: 'av5', url: 'https://images.unsplash.com/photo-1633332755192-727a05c4013d?auto=format&fit=crop&w=300&q=80', label: 'Avatar 5' },
   { id: 'av6', url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80', label: 'Avatar 6' }
 ];
@@ -327,7 +328,11 @@ export default function App() {
   const [allDepositRequests, setAllDepositRequests] = useState<DepositRequest[]>([]);
 
   // Admin Manual Service Form & Control State
-  const [adminSubTab, setAdminSubTab] = useState<'users' | 'spin' | 'daily' | 'ads' | 'promo' | 'payment' | 'deposits' | 'orders' | 'services' | 'notifications' | 'links' | 'settings' | 'tasks'>('users');
+  const [adminSubTab, setAdminSubTab] = useState<'users' | 'spin' | 'daily' | 'ads' | 'promo' | 'payment' | 'deposits' | 'orders' | 'services' | 'notifications' | 'links' | 'settings' | 'tasks' | 'avatars'>('users');
+  const [presetAvatars, setPresetAvatars] = useState<Array<{ id: string; url: string; label?: string }>>(PRESET_AVATARS);
+  const [adminNewAvatarUrl, setAdminNewAvatarUrl] = useState<string>('');
+  const [adminNewAvatarLabel, setAdminNewAvatarLabel] = useState<string>('');
+  const [adminAvatarUploadLoading, setAdminAvatarUploadLoading] = useState<boolean>(false);
   const [paymentMethodsConfig, setPaymentMethodsConfig] = useState<
     Record<string, { label: string; number: string; icon: string; note?: string; isCrypto?: boolean }>
   >({
@@ -403,7 +408,19 @@ export default function App() {
   const [lastDailyCheckInDate, setLastDailyCheckInDate] = useState<string>(() => {
     return localStorage.getItem('smm_daily_checkin_' + (currentUser?.uid || 'guest')) || '';
   });
+  const [lastDailyCheckInTime, setLastDailyCheckInTime] = useState<number>(() => {
+    const saved = localStorage.getItem('smm_daily_checkin_ts_' + (currentUser?.uid || 'guest'));
+    return saved ? parseInt(saved, 10) : 0;
+  });
   const [dailyCheckInLoading, setDailyCheckInLoading] = useState<boolean>(false);
+  const [dailyCountdownNow, setDailyCountdownNow] = useState<number>(Date.now());
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setDailyCountdownNow(Date.now());
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   // Promo Code State
   const [promoCodeEnabled, setPromoCodeEnabled] = useState<boolean>(true);
@@ -488,6 +505,10 @@ export default function App() {
     const saved = localStorage.getItem(`smm_lucky_spin_${new Date().toISOString().slice(0, 10)}_${currentUser?.uid || 'guest'}`);
     return saved ? parseInt(saved, 10) : 0;
   });
+  const [lastLuckySpinTime, setLastLuckySpinTime] = useState<number>(() => {
+    const saved = localStorage.getItem(`smm_lucky_spin_ts_${currentUser?.uid || 'guest'}`);
+    return saved ? parseInt(saved, 10) : 0;
+  });
 
   // VIP Gold Spin System State (Requirement: Wallet Balance >= 50 TK)
   const [goldSpinEnabled, setGoldSpinEnabled] = useState<boolean>(true);
@@ -512,9 +533,41 @@ export default function App() {
     const saved = localStorage.getItem(`smm_gold_spin_${new Date().toISOString().slice(0, 10)}_${currentUser?.uid || 'guest'}`);
     return saved ? parseInt(saved, 10) : 0;
   });
+  const [lastGoldSpinTime, setLastGoldSpinTime] = useState<number>(() => {
+    const saved = localStorage.getItem(`smm_gold_spin_ts_${currentUser?.uid || 'guest'}`);
+    return saved ? parseInt(saved, 10) : 0;
+  });
 
-  // Telegram Task Notification Helper (Daily Check-in, Promo Code, Ad Earn, Lucky Spin & Gold Spin live channel alert)
-  const sendTelegramTaskNotification = async (type: 'daily' | 'promo' | 'ad' | 'spin' | 'gold_spin', payload: {
+  // Premium Diamond Spin System State (Requirement: Win 0.30 TK - 10.00 TK, 90% chance on 0.30 - 1.00 TK, 1 spin per 24 hrs, 100 TK min balance)
+  const [premiumSpinEnabled, setPremiumSpinEnabled] = useState<boolean>(true);
+  const [premiumSpinMinBalance, setPremiumSpinMinBalance] = useState<number>(100);
+  const [premiumSpinDailyMaxLimit, setPremiumSpinDailyMaxLimit] = useState<number>(1);
+  const [isPremiumSpinning, setIsPremiumSpinning] = useState<boolean>(false);
+  const [premiumWheelRotation, setPremiumWheelRotation] = useState<number>(0);
+  const [showPremiumSpinWinModal, setShowPremiumSpinWinModal] = useState<boolean>(false);
+  const [wonPremiumSpinAmount, setWonPremiumSpinAmount] = useState<number>(0);
+  const [premiumSpinRewardOptions] = useState<number[]>([
+    0.30, 0.50, 0.80, 1.00, 0.30, 2.00, 0.50, 5.00,
+    0.80, 10.00, 1.00, 0.30, 0.50, 3.00, 0.80, 1.00
+  ]);
+
+  const getTodayPremiumSpinStorageKey = () => {
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const userId = currentUser?.uid || 'guest';
+    return `smm_premium_spin_${todayStr}_${userId}`;
+  };
+
+  const [todayPremiumSpinCount, setTodayPremiumSpinCount] = useState<number>(() => {
+    const saved = localStorage.getItem(`smm_premium_spin_${new Date().toISOString().slice(0, 10)}_${currentUser?.uid || 'guest'}`);
+    return saved ? parseInt(saved, 10) : 0;
+  });
+  const [lastPremiumSpinTime, setLastPremiumSpinTime] = useState<number>(() => {
+    const saved = localStorage.getItem(`smm_premium_spin_ts_${currentUser?.uid || 'guest'}`);
+    return saved ? parseInt(saved, 10) : 0;
+  });
+
+  // Telegram Task Notification Helper (Daily Check-in, Promo Code, Ad Earn, Lucky Spin, Gold Spin & Premium Spin live channel alert)
+  const sendTelegramTaskNotification = async (type: 'daily' | 'promo' | 'ad' | 'spin' | 'gold_spin' | 'premium_spin', payload: {
     userName: string;
     userId: string;
     reward: number;
@@ -574,6 +627,15 @@ export default function App() {
           `📊 <b>Today Gold Spins:</b> ${payload.usedCount || 1} / ${payload.maxUses || 20}\n` +
           `━━━━━━━━━━━━━━━━━━━\n` +
           `✨ <i>Keep ৳50+ balance in your wallet to unlock daily Gold Spins up to ৳ 5.00!</i>`;
+      } else if (type === 'premium_spin') {
+        textHtml = `💎 <b>PREMIUM DIAMOND SPIN WON!</b>\n` +
+          `━━━━━━━━━━━━━━━━━━━\n` +
+          `👤 <b>User:</b> ${escapeHtml(payload.userName)}\n` +
+          `💎 <b>Spin Tier:</b> Premium Diamond Wheel\n` +
+          `💰 <b>Premium Spin Reward:</b> ৳ ${(payload.reward || 0).toFixed(2)}\n` +
+          `📊 <b>Today Premium Spins:</b> ${payload.usedCount || 1} / ${payload.maxUses || 20}\n` +
+          `━━━━━━━━━━━━━━━━━━━\n` +
+          `🔥 <i>Spin the Premium Diamond Wheel to win up to ৳ 10.00 instantly on our Mini App!</i>`;
       }
 
       const keyboardButtons: any[] = [
@@ -691,12 +753,23 @@ export default function App() {
       return;
     }
 
-    const todayStr = new Date().toISOString().slice(0, 10);
+    const nowTs = Date.now();
+    const todayStr = new Date(nowTs).toISOString().slice(0, 10);
     const userStorageKey = 'smm_daily_checkin_' + (currentUser?.uid || 'guest');
-    const userLastClaim = localStorage.getItem(userStorageKey) || lastDailyCheckInDate;
+    const userStorageKeyTime = 'smm_daily_checkin_ts_' + (currentUser?.uid || 'guest');
 
-    if (userLastClaim === todayStr) {
-      showToast('⚠️ আপনি আজকের ডেইলি বোনাস ইতিমধ্যে নিয়ে নিয়েছেন! আগামীকাল আবার ক্লেইম করতে পারবেন।', 'info');
+    // Check 24-hour cooldown
+    const savedTsStr = localStorage.getItem(userStorageKeyTime);
+    let lastTs = lastDailyCheckInTime || (savedTsStr ? parseInt(savedTsStr, 10) : 0);
+
+    const nextClaimTime = lastTs ? lastTs + 24 * 60 * 60 * 1000 : 0;
+    const isCoolingDown = nextClaimTime > nowTs;
+
+    if (isCoolingDown) {
+      const diffMs = nextClaimTime - nowTs;
+      const hours = Math.floor(diffMs / (1000 * 60 * 60));
+      const mins = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+      showToast(`⏳ আপনি ইতিমধ্যে ক্লেইম করেছেন! পরবর্তী ক্লেইম পাবেন ${hours} ঘণ্টা ${mins} মিনিট পর।`, 'info');
       haptic('heavy');
       return;
     }
@@ -708,12 +781,15 @@ export default function App() {
 
       setUserBalance(newBal);
       setLastDailyCheckInDate(todayStr);
+      setLastDailyCheckInTime(nowTs);
       localStorage.setItem(userStorageKey, todayStr);
+      localStorage.setItem(userStorageKeyTime, String(nowTs));
 
       if (currentUser?.uid) {
         await updateDoc(doc(db, 'users', currentUser.uid), {
           balance: newBal,
-          lastDailyCheckInDate: todayStr
+          lastDailyCheckInDate: todayStr,
+          lastDailyCheckInTime: nowTs
         });
       }
 
@@ -980,8 +1056,13 @@ export default function App() {
 
     if (isSpinning) return;
 
-    if (todaySpinCount >= luckySpinDailyMaxLimit) {
-      showToast(`🛑 আপনি আজকের সর্বোচ্চ লিমিট (${luckySpinDailyMaxLimit}টি স্পিন) সম্পন্ন করে ফেলেছেন! আগামীকাল আবার চেষ্টা করুন।`, 'warning');
+    const nowTs = Date.now();
+    const nextSpinTs = lastLuckySpinTime ? lastLuckySpinTime + 24 * 60 * 60 * 1000 : 0;
+    if (todaySpinCount >= luckySpinDailyMaxLimit && nextSpinTs > nowTs) {
+      const diffMs = nextSpinTs - nowTs;
+      const hours = Math.floor(diffMs / (1000 * 60 * 60));
+      const mins = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+      showToast(`🛑 আপনি আজকের সর্বোচ্চ লিমিট সম্পন্ন করে ফেলেছেন! পরবর্তী স্পিন পাবেন ${hours} ঘণ্টা ${mins} মিনিট পর।`, 'warning');
       haptic('error');
       return;
     }
@@ -1039,9 +1120,12 @@ export default function App() {
       setShowSpinWinModal(true);
       haptic('success');
 
+      const finishTs = Date.now();
       const newCount = todaySpinCount + 1;
       setTodaySpinCount(newCount);
+      setLastLuckySpinTime(finishTs);
       localStorage.setItem(getTodaySpinStorageKey(), newCount.toString());
+      localStorage.setItem(`smm_lucky_spin_ts_${currentUser?.uid || 'guest'}`, String(finishTs));
 
       const newBal = (userBalance || 0) + rewardAmt;
       setUserBalance(newBal);
@@ -1083,8 +1167,13 @@ export default function App() {
 
     if (isGoldSpinning) return;
 
-    if (todayGoldSpinCount >= goldSpinDailyMaxLimit) {
-      showToast(`🛑 আপনি আজকের গোল্ড স্পিন লিমিট (${goldSpinDailyMaxLimit}টি স্পিন) সম্পন্ন করে ফেলেছেন! আগামীকাল আবার চেষ্টা করুন।`, 'warning');
+    const nowTs = Date.now();
+    const nextGoldSpinTs = lastGoldSpinTime ? lastGoldSpinTime + 24 * 60 * 60 * 1000 : 0;
+    if (todayGoldSpinCount >= goldSpinDailyMaxLimit && nextGoldSpinTs > nowTs) {
+      const diffMs = nextGoldSpinTs - nowTs;
+      const hours = Math.floor(diffMs / (1000 * 60 * 60));
+      const mins = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+      showToast(`🛑 আপনি আজকের গোল্ড স্পিন লিমিট সম্পন্ন করেছেন! পরবর্তী গোল্ড স্পিন পাবেন ${hours} ঘণ্টা ${mins} মিনিট পর।`, 'warning');
       haptic('error');
       return;
     }
@@ -1141,9 +1230,12 @@ export default function App() {
       setShowGoldSpinWinModal(true);
       haptic('success');
 
+      const finishTs = Date.now();
       const newCount = todayGoldSpinCount + 1;
       setTodayGoldSpinCount(newCount);
+      setLastGoldSpinTime(finishTs);
       localStorage.setItem(getTodayGoldSpinStorageKey(), newCount.toString());
+      localStorage.setItem(`smm_gold_spin_ts_${currentUser?.uid || 'guest'}`, String(finishTs));
 
       const newBal = (userBalance || 0) + rewardAmt;
       setUserBalance(newBal);
@@ -1167,6 +1259,116 @@ export default function App() {
       });
 
       showToast(`🏆 অভিনন্দন! গোল্ড ভিআইপি স্পিন ক্লেইম করে ৳ ${rewardAmt.toFixed(2)} ওয়ালেটে যোগ হয়েছে!`, 'success');
+    }, 3500);
+  };
+
+  const handleStartPremiumSpin = async () => {
+    if (!premiumSpinEnabled) {
+      showToast('⚠️ প্রিমিয়াম স্পিন সিস্টেম সাময়িকভাবে বন্ধ রাখা হয়েছে।', 'error');
+      haptic('error');
+      return;
+    }
+
+    if ((userBalance || 0) < premiumSpinMinBalance) {
+      showToast(`🔒 প্রিমিয়াম স্পিন আনলক করতে ওয়ালেটে নূন্যতম ৳ ${premiumSpinMinBalance} ব্যালেন্স প্রয়োজন! আপনার ব্যালেন্স ৳ ${(userBalance || 0).toFixed(2)}`, 'warning');
+      haptic('error');
+      return;
+    }
+
+    if (isPremiumSpinning) return;
+
+    const nowTs = Date.now();
+    const nextPremiumSpinTs = lastPremiumSpinTime ? lastPremiumSpinTime + 24 * 60 * 60 * 1000 : 0;
+    if (todayPremiumSpinCount >= premiumSpinDailyMaxLimit && nextPremiumSpinTs > nowTs) {
+      const diffMs = nextPremiumSpinTs - nowTs;
+      const hours = Math.floor(diffMs / (1000 * 60 * 60));
+      const mins = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+      showToast(`🛑 আপনি আজকের প্রিমিয়াম স্পিন লিমিট সম্পন্ন করেছেন! পরবর্তী প্রিমিয়াম স্পিন পাবেন ${hours} ঘণ্টা ${mins} মিনিট পর।`, 'warning');
+      haptic('error');
+      return;
+    }
+
+    setIsPremiumSpinning(true);
+    haptic('heavy');
+
+    // Trigger Monetag Ad if available
+    try {
+      if (typeof (window as any).show_11498050 === 'function') {
+        (window as any).show_11498050().catch(() => {});
+      }
+    } catch (e) {
+      console.log('Ad trigger during premium spin:', e);
+    }
+
+    // 16 Premium Diamond Spin Slices & Weights (90% chance for 0.30 TK - 1.00 TK, up to 10.00 TK):
+    // [0.30, 0.50, 0.80, 1.00, 0.30, 2.00, 0.50, 5.00, 0.80, 10.00, 1.00, 0.30, 0.50, 3.00, 0.80, 1.00]
+    const segmentsCount = premiumSpinRewardOptions.length;
+    const weights = [25, 20, 18, 12, 25, 8, 20, 5, 18, 6, 12, 25, 20, 6, 18, 12];
+    const totalWeight = weights.reduce((a, b) => a + b, 0);
+    let randomWeight = Math.random() * totalWeight;
+
+    let targetIdx = 0;
+    for (let i = 0; i < weights.length; i++) {
+      if (randomWeight < weights[i]) {
+        targetIdx = i;
+        break;
+      }
+      randomWeight -= weights[i];
+    }
+
+    const rewardAmt = premiumSpinRewardOptions[targetIdx];
+
+    // Calculate rotation angle so pointer at top (12 o'clock) points EXACTLY to targetIdx slice center
+    const sliceAngle = 360 / segmentsCount;
+    const targetAngle = (270 - targetIdx * sliceAngle + 360) % 360;
+    const extraRounds = 1800; // 5 full 360 rotations
+    const currentMod = premiumWheelRotation % 360;
+    let diffAngle = targetAngle - currentMod;
+    if (diffAngle < 0) diffAngle += 360;
+    const nextRotation = premiumWheelRotation + extraRounds + diffAngle;
+
+    setPremiumWheelRotation(nextRotation);
+
+    const vibInterval = setInterval(() => {
+      haptic('light');
+    }, 280);
+
+    setTimeout(async () => {
+      clearInterval(vibInterval);
+      setIsPremiumSpinning(false);
+      setWonPremiumSpinAmount(rewardAmt);
+      setShowPremiumSpinWinModal(true);
+      haptic('success');
+
+      const finishTs = Date.now();
+      const newCount = todayPremiumSpinCount + 1;
+      setTodayPremiumSpinCount(newCount);
+      setLastPremiumSpinTime(finishTs);
+      localStorage.setItem(getTodayPremiumSpinStorageKey(), newCount.toString());
+      localStorage.setItem(`smm_premium_spin_ts_${currentUser?.uid || 'guest'}`, String(finishTs));
+
+      const newBal = (userBalance || 0) + rewardAmt;
+      setUserBalance(newBal);
+
+      if (currentUser?.uid) {
+        try {
+          await updateDoc(doc(db, 'users', currentUser.uid), {
+            balance: newBal
+          });
+        } catch (e) {
+          console.error('Update premium spin balance error:', e);
+        }
+      }
+
+      await sendTelegramTaskNotification('premium_spin', {
+        userName: currentUser?.name || currentUser?.username || 'User',
+        userId: currentUser?.uid || 'N/A',
+        reward: rewardAmt,
+        usedCount: newCount,
+        maxUses: premiumSpinDailyMaxLimit
+      });
+
+      showToast(`💎 অভিনন্দন! প্রিমিয়াম ডায়মন্ড স্পিন ক্লেইম করে ৳ ${rewardAmt.toFixed(2)} ওয়ালেটে যোগ হয়েছে!`, 'success');
     }, 3500);
   };
 
@@ -1525,6 +1727,7 @@ export default function App() {
   const [newTaskTitle, setNewTaskTitle] = useState('');
   const [newTaskDesc, setNewTaskDesc] = useState('');
   const [newTaskReward, setNewTaskReward] = useState('5');
+  const [newTaskMaxUserLimit, setNewTaskMaxUserLimit] = useState<string>('0');
   const [newTaskLink, setNewTaskLink] = useState('');
   const [newTaskIcon, setNewTaskIcon] = useState('fas fa-tasks');
   const [newTaskImage, setNewTaskImage] = useState<string | null>(null);
@@ -1718,6 +1921,9 @@ export default function App() {
         if (d.goldSpinEnabled !== undefined) setGoldSpinEnabled(Boolean(d.goldSpinEnabled));
         if (d.goldSpinMinBalance !== undefined) setGoldSpinMinBalance(Number(d.goldSpinMinBalance) || 50);
         if (d.goldSpinDailyMaxLimit !== undefined) setGoldSpinDailyMaxLimit(Number(d.goldSpinDailyMaxLimit) || 20);
+        if (d.premiumSpinEnabled !== undefined) setPremiumSpinEnabled(Boolean(d.premiumSpinEnabled));
+        if (d.premiumSpinMinBalance !== undefined) setPremiumSpinMinBalance(Number(d.premiumSpinMinBalance) || 100);
+        if (d.premiumSpinDailyMaxLimit !== undefined) setPremiumSpinDailyMaxLimit(Number(d.premiumSpinDailyMaxLimit) || 1);
         if (d.dailyCheckInEnabled !== undefined) setDailyCheckInEnabled(Boolean(d.dailyCheckInEnabled));
         if (d.dailyCheckInReward !== undefined) setDailyCheckInReward(Number(d.dailyCheckInReward) || 5.0);
         if (d.adEarnEnabled !== undefined) setAdEarnEnabled(Boolean(d.adEarnEnabled));
@@ -1728,6 +1934,96 @@ export default function App() {
     });
     return () => unsub();
   }, []);
+
+  // Helper to save avatars gallery to Firestore
+  const saveAvatarsToFirestore = async (avatarsList: Array<{ id: string; url: string; label?: string }>) => {
+    try {
+      await setDoc(doc(db, 'settings', 'avatars_config'), { avatars: avatarsList }, { merge: true });
+    } catch (e: any) {
+      console.error('Error saving avatars to Firestore:', e);
+      showToast('⚠️ ফায়ারবেসে অবতার গ্যালারি সেভ করতে সমস্যা: ' + (e.message || 'Error'), 'error');
+    }
+  };
+
+  // Sync Preset Avatars Gallery from Firestore
+  useEffect(() => {
+    const unsub = onSnapshot(doc(db, 'settings', 'avatars_config'), (docSnap) => {
+      if (docSnap.exists()) {
+        const d = docSnap.data();
+        if (Array.isArray(d.avatars) && d.avatars.length > 0) {
+          setPresetAvatars(d.avatars);
+        }
+      }
+    });
+    return () => unsub();
+  }, []);
+
+  // Admin Avatar Management Handlers
+  const handleAddAdminAvatar = async (urlToAdd?: string) => {
+    const finalUrl = (urlToAdd || adminNewAvatarUrl).trim();
+    if (!finalUrl) {
+      showToast('⚠️ দয়া করে একটি সঠিক ইমেজ URL লিখুন অথবা ফাইল আপলোড করুন!', 'warning');
+      haptic('error');
+      return;
+    }
+
+    const newAvatarItem = {
+      id: 'av_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
+      url: finalUrl,
+      label: adminNewAvatarLabel.trim() || `Avatar ${presetAvatars.length + 1}`
+    };
+
+    const updatedAvatars = [...presetAvatars, newAvatarItem];
+    setPresetAvatars(updatedAvatars);
+    setAdminNewAvatarUrl('');
+    setAdminNewAvatarLabel('');
+    await saveAvatarsToFirestore(updatedAvatars);
+    showToast('✅ নতুন প্রোফাইল পিকচার অবতার গ্যালারিতে যোগ হয়েছে!', 'success');
+    haptic('success');
+  };
+
+  const handleDeleteAdminAvatar = async (avatarId: string) => {
+    if (presetAvatars.length <= 1) {
+      showToast('⚠️ গ্যালারিতে অন্তত ১টি প্রোফাইল পিকচার থাকতে হবে!', 'warning');
+      haptic('error');
+      return;
+    }
+    const updatedAvatars = presetAvatars.filter((a) => a.id !== avatarId);
+    setPresetAvatars(updatedAvatars);
+    await saveAvatarsToFirestore(updatedAvatars);
+    showToast('🗑️ প্রোফাইল পিকচারটি গ্যালারি থেকে মুছে ফেলা হয়েছে!', 'info');
+    haptic('light');
+  };
+
+  const handleAdminAvatarFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      showToast('⚠️ দয়া করে সঠিক ইমেজ ফাইল সিলেক্ট করুন (JPG, PNG, WebP)', 'warning');
+      haptic('error');
+      return;
+    }
+
+    setAdminAvatarUploadLoading(true);
+    try {
+      const compressedBase64 = await compressImageToBase64(file, 400, 400, 0.85);
+      await handleAddAdminAvatar(compressedBase64);
+    } catch (err: any) {
+      console.error('Error uploading admin avatar image:', err);
+      showToast('⚠️ ছবি প্রসেস করতে সমস্যা হয়েছে!', 'error');
+    } finally {
+      setAdminAvatarUploadLoading(false);
+      if (e.target) e.target.value = '';
+    }
+  };
+
+  const handleResetDefaultAvatars = async () => {
+    setPresetAvatars(PRESET_AVATARS);
+    await saveAvatarsToFirestore(PRESET_AVATARS);
+    showToast('🔄 পূর্বনির্ধারিত ৬টি ডিফল্ট অবতার রিসেট করা হয়েছে!', 'success');
+    haptic('success');
+  };
 
   // Sync Promo Codes from Firestore collection
   useEffect(() => {
@@ -1951,6 +2247,20 @@ export default function App() {
       return;
     }
 
+    // Check task max user limit
+    const existingCount = allTaskSubmissions.filter(
+      (s) => s.taskId === selectedTaskForProof.id && (s.status === 'Approved' || s.status === 'Pending')
+    ).length;
+    if (
+      selectedTaskForProof.maxUserLimit &&
+      selectedTaskForProof.maxUserLimit > 0 &&
+      existingCount >= selectedTaskForProof.maxUserLimit
+    ) {
+      showToast(`⚠️ এই টাস্কটির ইউজার লিমিট পূর্ণ হয়ে গেছে (${selectedTaskForProof.maxUserLimit} জন)! আর সাবমিট করা যাবে না।`, 'error');
+      haptic('error');
+      return;
+    }
+
     setTaskSubmitting(true);
     try {
       const newSubmissionDoc = {
@@ -2170,6 +2480,7 @@ export default function App() {
       return;
     }
     const rewardVal = parseFloat(newTaskReward) || 5;
+    const maxLimitVal = parseInt(newTaskMaxUserLimit, 10) || 0;
 
     const newTaskDoc = {
       title: newTaskTitle.trim(),
@@ -2177,7 +2488,8 @@ export default function App() {
       reward: rewardVal,
       link: newTaskLink.trim() || '#',
       icon: newTaskIcon || 'fas fa-tasks',
-      image: newTaskImage || ''
+      image: newTaskImage || '',
+      maxUserLimit: maxLimitVal > 0 ? maxLimitVal : 0
     };
 
     try {
@@ -2188,11 +2500,28 @@ export default function App() {
       setNewTaskTitle('');
       setNewTaskDesc('');
       setNewTaskReward('5');
+      setNewTaskMaxUserLimit('0');
       setNewTaskLink('');
       setNewTaskImage(null);
     } catch (e: any) {
       console.error('Error creating task:', e);
       showToast('Failed to create task: ' + e.message, 'error');
+    }
+  };
+
+  // Admin Actions: Update Task User Limit
+  const handleUpdateTaskLimit = async (taskId: string, newLimit: number) => {
+    try {
+      const limitVal = isNaN(newLimit) || newLimit < 0 ? 0 : newLimit;
+      await updateDoc(doc(db, 'tasks', taskId), { maxUserLimit: limitVal });
+      setCustomTasks((prev) =>
+        prev.map((t) => (t.id === taskId ? { ...t, maxUserLimit: limitVal } : t))
+      );
+      showToast(`✅ টাস্কটির ইউজার লিমিট আপডেট করা হয়েছে (${limitVal === 0 ? 'আনলিমিটেড' : limitVal + ' জন ইউজার'})!`, 'success');
+      haptic('success');
+    } catch (e: any) {
+      console.error('Error updating task limit:', e);
+      showToast('Failed to update task limit', 'error');
     }
   };
 
@@ -3547,6 +3876,12 @@ export default function App() {
                       src={userPhotoURL || currentUser?.photoURL}
                       className="w-12 h-12 rounded-xl object-cover shadow-lg border-2 border-amber-400/60 group-hover:scale-105 transition duration-300"
                       alt="User Avatar"
+                      referrerPolicy="no-referrer"
+                      onError={(e) => {
+                        e.currentTarget.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(
+                          currentUser?.name || 'User'
+                        )}&background=3b82f6&color=fff&bold=true`;
+                      }}
                     />
                   ) : (
                     <img
@@ -3555,6 +3890,7 @@ export default function App() {
                       )}&background=3b82f6&color=fff&bold=true`}
                       className="w-12 h-12 rounded-xl object-cover shadow-lg border-2 border-white/10 group-hover:scale-105 transition duration-300"
                       alt="User Avatar"
+                      referrerPolicy="no-referrer"
                     />
                   )}
                   <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-emerald-500 rounded-md flex items-center justify-center border-2 border-[#030712]">
@@ -4103,6 +4439,150 @@ export default function App() {
                   </p>
                 </div>
               </div>
+
+              {/* Modern Extra Bottom Highlights & Features Section */}
+              <div className="space-y-4 mb-6">
+                {/* Platform Live Stats Bar */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                  <div className="glass-card p-3 rounded-2xl border border-cyan-500/20 bg-gradient-to-br from-cyan-950/40 via-slate-900 to-slate-950 text-center space-y-1">
+                    <div className="w-8 h-8 rounded-xl bg-cyan-500/15 border border-cyan-500/30 text-cyan-400 flex items-center justify-center text-xs mx-auto">
+                      <i className="fas fa-bolt"></i>
+                    </div>
+                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">গড় ডেলিভারি</p>
+                    <p className="text-xs font-black text-cyan-300 font-mono">১ - ৫ মিনিট</p>
+                  </div>
+
+                  <div className="glass-card p-3 rounded-2xl border border-blue-500/20 bg-gradient-to-br from-blue-950/40 via-slate-900 to-slate-950 text-center space-y-1">
+                    <div className="w-8 h-8 rounded-xl bg-blue-500/15 border border-blue-500/30 text-blue-400 flex items-center justify-center text-xs mx-auto">
+                      <i className="fas fa-users"></i>
+                    </div>
+                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">সন্তুষ্ট ইউজার</p>
+                    <p className="text-xs font-black text-blue-300 font-mono">৫০,০০০+</p>
+                  </div>
+
+                  <div className="glass-card p-3 rounded-2xl border border-amber-500/20 bg-gradient-to-br from-amber-950/40 via-slate-900 to-slate-950 text-center space-y-1">
+                    <div className="w-8 h-8 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-400 flex items-center justify-center text-xs mx-auto">
+                      <i className="fas fa-star"></i>
+                    </div>
+                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">ইউজার রেটিং</p>
+                    <p className="text-xs font-black text-amber-300 font-mono">৪.৯ / ৫.০ ★</p>
+                  </div>
+
+                  <div className="glass-card p-3 rounded-2xl border border-emerald-500/20 bg-gradient-to-br from-emerald-950/40 via-slate-900 to-slate-950 text-center space-y-1">
+                    <div className="w-8 h-8 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 flex items-center justify-center text-xs mx-auto">
+                      <i className="fas fa-shield-check"></i>
+                    </div>
+                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">সফলতা হার</p>
+                    <p className="text-xs font-black text-emerald-300 font-mono">৯৯.৯%</p>
+                  </div>
+                </div>
+
+                {/* Extra Feature Showcase Grid */}
+                <div className="glass-card p-4 sm:p-5 rounded-2xl border border-white/10 bg-gradient-to-b from-slate-900/90 to-slate-950/95 space-y-3.5 shadow-xl">
+                  <div className="flex items-center justify-between border-b border-white/10 pb-2.5">
+                    <div className="flex items-center gap-2">
+                      <div className="w-7 h-7 rounded-lg bg-amber-500/20 border border-amber-500/40 text-amber-300 flex items-center justify-center text-xs">
+                        <i className="fas fa-crown"></i>
+                      </div>
+                      <h4 className="font-extrabold text-xs text-white uppercase tracking-wider">
+                        আমাদের সার্ভিসসমূহের বৈশিষ্ট্য (Features)
+                      </h4>
+                    </div>
+                    <span className="text-[9px] font-black text-cyan-300 bg-cyan-500/10 px-2 py-0.5 rounded-full border border-cyan-500/20">
+                      PREMIUM QUALITY
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="flex items-start gap-3 p-3 rounded-xl bg-black/40 border border-white/5 hover:border-cyan-500/30 transition">
+                      <div className="w-9 h-9 rounded-xl bg-cyan-500/15 text-cyan-400 flex items-center justify-center text-sm shrink-0 mt-0.5">
+                        <i className="fas fa-rocket"></i>
+                      </div>
+                      <div className="space-y-0.5">
+                        <h5 className="font-black text-xs text-cyan-200">ইনস্ট্যান্ট স্পিড প্রসেসিং</h5>
+                        <p className="text-[10px] text-slate-400 leading-relaxed">
+                          অর্ডার কনফার্ম করার সাথে সাথে অটোমেটিক সিস্টেমের মাধ্যমে দ্রুত কাজ শুরু হয়ে যায়।
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-start gap-3 p-3 rounded-xl bg-black/40 border border-white/5 hover:border-emerald-500/30 transition">
+                      <div className="w-9 h-9 rounded-xl bg-emerald-500/15 text-emerald-400 flex items-center justify-center text-sm shrink-0 mt-0.5">
+                        <i className="fas fa-coins"></i>
+                      </div>
+                      <div className="space-y-0.5">
+                        <h5 className="font-black text-xs text-emerald-200">দৈনিক রিওয়ার্ড ও ইনকাম</h5>
+                        <p className="text-[10px] text-slate-400 leading-relaxed">
+                          প্রতিদিন ফ্রি চেক-ইন, হুইল স্পিন ও টাস্ক কমপ্লিট করে ফ্রি ব্যালেন্স আয় করার সুবিধা।
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-start gap-3 p-3 rounded-xl bg-black/40 border border-white/5 hover:border-purple-500/30 transition">
+                      <div className="w-9 h-9 rounded-xl bg-purple-500/15 text-purple-400 flex items-center justify-center text-sm shrink-0 mt-0.5">
+                        <i className="fas fa-lock text-purple-300"></i>
+                      </div>
+                      <div className="space-y-0.5">
+                        <h5 className="font-black text-xs text-purple-200">নিরাপদ ও প্রাইভেট</h5>
+                        <p className="text-[10px] text-slate-400 leading-relaxed">
+                          পাসওয়ার্ডের কোনো প্রয়োজন নেই। ১০০% গোপনীয়তা রক্ষা করে সার্ভিস প্রদান করা হয়।
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-start gap-3 p-3 rounded-xl bg-black/40 border border-white/5 hover:border-amber-500/30 transition">
+                      <div className="w-9 h-9 rounded-xl bg-amber-500/15 text-amber-400 flex items-center justify-center text-sm shrink-0 mt-0.5">
+                        <i className="fas fa-headset text-amber-300"></i>
+                      </div>
+                      <div className="space-y-0.5">
+                        <h5 className="font-black text-xs text-amber-200">২৪/৭ কাস্টমার সাপোর্ট</h5>
+                        <p className="text-[10px] text-slate-400 leading-relaxed">
+                          অর্ডার সংক্রান্ত যেকোনো প্রশ্ন বা সহযোগিতায় সরাসরি টেলিগ্রাম ও সাপোর্ট চ্যানেলে যোগাযোগ করুন।
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Bottom Interactive Quick Explorer CTA Banner */}
+                <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-blue-950 via-purple-950 to-slate-950 border border-blue-500/30 shadow-2xl relative overflow-hidden flex flex-wrap items-center justify-between gap-3">
+                  <div className="space-y-1 max-w-sm">
+                    <span className="text-[9px] font-black text-amber-300 bg-amber-500/10 px-2.5 py-0.5 rounded-full border border-amber-500/30">
+                      ⚡ QUICK EXPLORE
+                    </span>
+                    <h4 className="font-black text-xs text-white pt-1">
+                      ডেইলি ফ্রি বোনাস ও টাস্ক স্পিন এক্সপ্লোর করতে চান?
+                    </h4>
+                    <p className="text-[10px] text-slate-300">
+                      সহজ টাস্ক কমপ্লিট করুন, ডায়মন্ড স্পিন ঘুরান এবং আপনার ওয়ালেটে ফ্রি বোনাস যোগ করুন!
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      onClick={() => {
+                        setActiveTab('tasks');
+                        haptic('light');
+                      }}
+                      className="px-3.5 py-2 bg-gradient-to-r from-cyan-500 to-blue-600 hover:brightness-110 text-white font-extrabold text-xs rounded-xl shadow-lg shadow-cyan-500/20 transition active:scale-95 flex items-center gap-1.5"
+                    >
+                      <i className="fas fa-tasks text-cyan-200"></i>
+                      <span>টাস্ক পেইজ (TASKS)</span>
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        setActiveTab('funds');
+                        haptic('light');
+                      }}
+                      className="px-3.5 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs rounded-xl shadow-lg transition active:scale-95 flex items-center gap-1.5"
+                    >
+                      <i className="fas fa-wallet"></i>
+                      <span>ফান্ড ডিপোজিট</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
             </section>
           )}
 
@@ -4426,35 +4906,337 @@ export default function App() {
                       </div>
                     </div>
 
-                    {/* Gold Spin Button */}
+                    {/* Gold Spin Button & 24hr Timer */}
+                    {(() => {
+                      const nextGoldSpinTs = lastGoldSpinTime ? lastGoldSpinTime + 24 * 60 * 60 * 1000 : 0;
+                      const goldDiffMs = nextGoldSpinTs ? nextGoldSpinTs - dailyCountdownNow : 0;
+                      const isGoldLimitReached = todayGoldSpinCount >= goldSpinDailyMaxLimit;
+                      const isGoldSpinCoolingDown = isGoldLimitReached && goldDiffMs > 0;
+
+                      let hours = 0;
+                      let mins = 0;
+                      let secs = 0;
+                      if (isGoldSpinCoolingDown && goldDiffMs > 0) {
+                        hours = Math.floor(goldDiffMs / (1000 * 60 * 60));
+                        mins = Math.floor((goldDiffMs % (1000 * 60 * 60)) / (1000 * 60));
+                        secs = Math.floor((goldDiffMs % (1000 * 60)) / 1000);
+                      }
+                      const goldCountdownStr = `${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+                      const goldPercentElapsed = isGoldSpinCoolingDown ? Math.min(100, Math.max(0, ((24 * 3600 * 1000 - goldDiffMs) / (24 * 3600 * 1000)) * 100)) : 100;
+
+                      return (
+                        <div className="space-y-3">
+                          {isGoldSpinCoolingDown && (
+                            <div className="p-3.5 rounded-2xl bg-gradient-to-r from-yellow-950/80 via-slate-900 to-amber-950/60 border border-yellow-500/40 text-center space-y-2 shadow-inner">
+                              <div className="text-[11px] text-yellow-200/90 font-bold flex items-center justify-center gap-1.5">
+                                <i className="fas fa-crown text-yellow-400 animate-bounce"></i>
+                                <span>২৪ ঘণ্টার গোল্ড স্পিন কুলডাউন চলছে:</span>
+                              </div>
+                              <div className="text-2xl font-black font-mono text-yellow-400 tracking-widest drop-shadow-md py-1 bg-black/40 rounded-xl border border-yellow-500/30">
+                                ⏱️ {goldCountdownStr}
+                              </div>
+                              <p className="text-[10px] text-slate-300 font-medium">
+                                পরবর্তী গোল্ড স্পিন পাবেন <span className="text-yellow-300 font-bold">{hours} ঘণ্টা {mins} মিনিট {secs} সেকেন্ড</span> পর।
+                              </p>
+                              <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden border border-yellow-500/20">
+                                <div
+                                  className="bg-gradient-to-r from-yellow-500 via-amber-400 to-yellow-300 h-1.5 rounded-full transition-all duration-1000"
+                                  style={{ width: `${goldPercentElapsed}%` }}
+                                ></div>
+                              </div>
+                            </div>
+                          )}
+
+                          <button
+                            onClick={handleStartGoldSpin}
+                            disabled={isGoldSpinning || isGoldSpinCoolingDown}
+                            className={`w-full py-4 rounded-2xl font-black text-xs sm:text-sm uppercase tracking-wider transition active:scale-95 flex items-center justify-center gap-2 shadow-xl ${
+                              isGoldSpinCoolingDown
+                                ? 'bg-slate-800 text-yellow-300/80 border border-yellow-500/20 cursor-not-allowed'
+                                : isGoldSpinning
+                                ? 'bg-amber-600 text-slate-950 cursor-wait'
+                                : 'bg-gradient-to-r from-yellow-400 via-amber-400 to-yellow-500 hover:brightness-110 text-slate-950 border border-yellow-300 shadow-yellow-500/30'
+                            }`}
+                          >
+                            {isGoldSpinning ? (
+                              <>
+                                <i className="fas fa-spinner fa-spin text-base"></i>
+                                <span>SPINNING GOLD WHEEL... (ঘুরছে...)</span>
+                              </>
+                            ) : isGoldSpinCoolingDown ? (
+                              <>
+                                <i className="fas fa-clock text-yellow-400 animate-pulse"></i>
+                                <span>{goldCountdownStr} পর গোল্ড স্পিন পাবেন</span>
+                              </>
+                            ) : isGoldLimitReached ? (
+                              <>
+                                <i className="fas fa-check-double text-emerald-400"></i>
+                                <span>আজকের {goldSpinDailyMaxLimit}টি গোল্ড স্পিন সম্পন্ন হয়েছে</span>
+                              </>
+                            ) : (
+                              <>
+                                <i className="fas fa-crown text-slate-950 text-base"></i>
+                                <span>SPIN GOLD WHEEL NOW (গোল্ড স্পিন করুন)</span>
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
+              </div>
+
+              {/* CARD 0-PREMIUM: PREMIUM DIAMOND SPIN & WIN (প্রিমিয়াম ডায়মন্ড স্পিন) */}
+              <div className="glass-card p-5 space-y-4 border border-cyan-500/50 relative overflow-hidden bg-gradient-to-br from-cyan-950/60 via-slate-900 to-purple-950/60 shadow-2xl">
+                <div className="absolute top-0 right-0 bg-gradient-to-l from-cyan-500 via-blue-500 to-purple-600 text-white font-black text-[9px] px-3 py-1 rounded-bl-xl uppercase tracking-wider flex items-center gap-1 shadow-md">
+                  <i className="fas fa-gem text-cyan-200 animate-pulse"></i>
+                  <span>PREMIUM ৳{premiumSpinMinBalance}+ BALANCE UNLOCKED</span>
+                </div>
+
+                <div className="flex items-center justify-between border-b border-cyan-500/20 pb-3 pt-2">
+                  <div className="flex items-center gap-3">
+                    <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-cyan-400 via-blue-500 to-purple-600 text-white flex items-center justify-center text-xl font-black shadow-lg shadow-cyan-500/30 border border-cyan-300">
+                      <i className="fas fa-gem animate-bounce"></i>
+                    </div>
+                    <div>
+                      <h3 className="font-extrabold text-sm text-cyan-300 flex items-center gap-2">
+                        <span>Premium Spin & Win (প্রিমিয়াম স্পিন)</span>
+                        <span className="text-[9px] font-black bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 px-2 py-0.5 rounded-md">
+                          0.30 TK - 10.00 TK
+                        </span>
+                      </h3>
+                      <p className="text-[10px] text-slate-300">
+                        যাদের একাউন্টে ৳ {premiumSpinMinBalance}+ ব্যালেন্স থাকবে তারা পাবেন প্রিমিয়াম স্পিন! প্রতিবার পাচ্ছেন ৳ 0.30 থেকে সর্বোচ্চ ৳ 10.00 পর্যন্ত জেতার সুযোগ!
+                      </p>
+                    </div>
+                  </div>
+                  <span className="text-xs font-black text-cyan-300 font-mono bg-cyan-500/10 px-2.5 py-1 rounded-lg border border-cyan-500/30 shrink-0">
+                    ৳ 0.30 - ৳ 10.00
+                  </span>
+                </div>
+
+                {/* Admin Quick Shortcut Button for Premium Spin */}
+                {isAdminUser && (
+                  <button
+                    onClick={() => {
+                      setActiveTab('admin');
+                      setAdminSubTab('spin');
+                      showToast('⚙️ Premium Diamond Spin Admin Controls Opened', 'info');
+                      haptic('light');
+                    }}
+                    className="w-full py-2 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 rounded-xl text-xs font-extrabold flex items-center justify-center gap-2 transition"
+                  >
+                    <i className="fas fa-gem text-cyan-400"></i>
+                    <span>Premium Spin Controls</span>
+                  </button>
+                )}
+
+                {/* Eligibility Lock Guard or Active Premium Spin Wheel */}
+                {!premiumSpinEnabled ? (
+                  <div className="p-4 rounded-2xl bg-red-950/30 border border-red-500/30 text-center text-red-300 text-xs font-bold">
+                    ⚠️ প্রিমিয়াম স্পিন সিস্টেম সাময়িকভাবে বন্ধ রয়েছে।
+                  </div>
+                ) : userBalance < premiumSpinMinBalance ? (
+                  /* Locked State View */
+                  <div className="bg-slate-950/90 border border-cyan-500/30 rounded-2xl p-4 sm:p-5 text-center space-y-3 relative overflow-hidden">
+                    <div className="w-12 h-12 rounded-2xl bg-cyan-500/20 border border-cyan-500/40 text-cyan-400 flex items-center justify-center text-xl mx-auto shadow-md">
+                      <i className="fas fa-lock text-cyan-400"></i>
+                    </div>
+
+                    <div className="space-y-1">
+                      <h4 className="font-extrabold text-xs text-cyan-300">
+                        🔒 প্রিমিয়াম স্পিন আনলক করতে ওয়ালেটে নূন্যতম ৳ {premiumSpinMinBalance} প্রয়োজন!
+                      </h4>
+                      <p className="text-[11px] text-slate-300 max-w-sm mx-auto">
+                        আপনার একাউন্ট ব্যালেন্স ৳ {premiumSpinMinBalance} বা তার বেশি থাকলে আপনি ২৪ ঘণ্টায় সর্বমোট {premiumSpinDailyMaxLimit}টি প্রিমিয়াম ডায়মন্ড স্পিন পাবেন। প্রতিবার ৳ 0.30 থেকে ৳ 10.00 পর্যন্ত জেতার সুযোগ!
+                      </p>
+                    </div>
+
+                    {/* Balance Status Meter */}
+                    <div className="bg-black/50 p-3 rounded-xl border border-white/10 flex items-center justify-between text-xs font-bold max-w-xs mx-auto">
+                      <span className="text-slate-400">আপনার বর্তমান ব্যালেন্স:</span>
+                      <span className="text-cyan-400 font-mono font-black">৳ {userBalance.toFixed(2)}</span>
+                    </div>
+
                     <button
-                      onClick={handleStartGoldSpin}
-                      disabled={isGoldSpinning || todayGoldSpinCount >= goldSpinDailyMaxLimit}
-                      className={`w-full py-4 rounded-2xl font-black text-xs sm:text-sm uppercase tracking-wider transition active:scale-95 flex items-center justify-center gap-2 shadow-xl ${
-                        todayGoldSpinCount >= goldSpinDailyMaxLimit
-                          ? 'bg-slate-800 text-slate-500 border border-white/5 cursor-not-allowed'
-                          : isGoldSpinning
-                          ? 'bg-amber-600 text-slate-950 cursor-wait'
-                          : 'bg-gradient-to-r from-yellow-400 via-amber-400 to-yellow-500 hover:brightness-110 text-slate-950 border border-yellow-300 shadow-yellow-500/30'
-                      }`}
+                      onClick={() => {
+                        setActiveTab('funds');
+                        showToast('💰 ডিপোজিট পেজে রিডাইরেক্ট করা হচ্ছে...', 'info');
+                        haptic('light');
+                      }}
+                      className="px-5 py-2.5 bg-gradient-to-r from-cyan-400 via-blue-500 to-purple-600 hover:brightness-110 text-white font-extrabold text-xs rounded-xl shadow-lg shadow-cyan-500/20 transition active:scale-95 flex items-center justify-center gap-2 mx-auto"
                     >
-                      {isGoldSpinning ? (
-                        <>
-                          <i className="fas fa-spinner fa-spin text-base"></i>
-                          <span>SPINNING GOLD WHEEL... (ঘুরছে...)</span>
-                        </>
-                      ) : todayGoldSpinCount >= goldSpinDailyMaxLimit ? (
-                        <>
-                          <i className="fas fa-check-double text-emerald-400"></i>
-                          <span>আজকের {goldSpinDailyMaxLimit}টি গোল্ড স্পিন সম্পন্ন হয়েছে</span>
-                        </>
-                      ) : (
-                        <>
-                          <i className="fas fa-crown text-slate-950 text-base"></i>
-                          <span>SPIN GOLD WHEEL NOW (গোল্ড স্পিন করুন)</span>
-                        </>
-                      )}
+                      <i className="fas fa-plus-circle"></i>
+                      <span>এড ফান্ড / ডিপোজিট করুন (ADD FUNDS)</span>
                     </button>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {/* Progress & Daily Limit */}
+                    <div className="p-3 rounded-2xl bg-slate-950/80 border border-cyan-500/30 flex items-center justify-between text-xs font-bold">
+                      <span className="text-cyan-200">আজকের প্রিমিয়াম স্পিন লিমিট:</span>
+                      <span className="text-cyan-400 font-mono">
+                        {todayPremiumSpinCount} / {premiumSpinDailyMaxLimit} Used
+                      </span>
+                    </div>
+
+                    {/* Premium Wheel Visual Container */}
+                    <div className="relative flex flex-col items-center justify-center py-2">
+                      {/* Pointer Arrow at top */}
+                      <div className="absolute top-0 z-20 text-cyan-400 text-3xl filter drop-shadow-[0_2px_8px_rgba(6,182,212,0.9)] -mb-2">
+                        <i className="fas fa-caret-down"></i>
+                      </div>
+
+                      {/* Circular Premium Diamond Wheel */}
+                      <div className="relative w-56 h-56 rounded-full border-4 border-cyan-400 shadow-[0_0_50px_rgba(6,182,212,0.45)] overflow-hidden bg-slate-950">
+                        <div
+                          className="w-full h-full rounded-full relative transition-transform duration-[3500ms] ease-[cubic-bezier(0.15,0.9,0.2,1)]"
+                          style={{
+                            transform: `rotate(${premiumWheelRotation}deg)`
+                          }}
+                        >
+                          {/* SVG Premium Slices (16 Slices) */}
+                          <svg viewBox="0 0 100 100" className="w-full h-full" style={{ transform: 'rotate(-11.25deg)' }}>
+                            {[
+                              { label: '৳0.30', bg: '#0891b2' },
+                              { label: '৳0.50', bg: '#0284c7' },
+                              { label: '৳0.80', bg: '#2563eb' },
+                              { label: '৳1.00', bg: '#4f46e5' },
+                              { label: '৳0.30', bg: '#7c3aed' },
+                              { label: '৳2.00', bg: '#9333ea' },
+                              { label: '৳0.50', bg: '#c026d3' },
+                              { label: '৳5.00', bg: '#db2777' },
+                              { label: '৳0.80', bg: '#0891b2' },
+                              { label: '৳10.0', bg: '#e11d48' },
+                              { label: '৳1.00', bg: '#0284c7' },
+                              { label: '৳0.30', bg: '#2563eb' },
+                              { label: '৳0.50', bg: '#4f46e5' },
+                              { label: '৳3.00', bg: '#7c3aed' },
+                              { label: '৳0.80', bg: '#9333ea' },
+                              { label: '৳1.00', bg: '#c026d3' }
+                            ].map((slice, idx) => {
+                              const angle = 22.5; // 360 / 16
+                              const startAngle = idx * angle;
+                              const endAngle = (idx + 1) * angle;
+                              const x1 = 50 + 50 * Math.cos((Math.PI * startAngle) / 180);
+                              const y1 = 50 + 50 * Math.sin((Math.PI * startAngle) / 180);
+                              const x2 = 50 + 50 * Math.cos((Math.PI * endAngle) / 180);
+                              const y2 = 50 + 50 * Math.sin((Math.PI * endAngle) / 180);
+                              const textAngle = startAngle + angle / 2;
+                              const textX = 50 + 34 * Math.cos((Math.PI * textAngle) / 180);
+                              const textY = 50 + 34 * Math.sin((Math.PI * textAngle) / 180);
+
+                              return (
+                                <g key={idx}>
+                                  <path
+                                    d={`M50,50 L${x1},${y1} A50,50 0 0,1 ${x2},${y2} Z`}
+                                    fill={slice.bg}
+                                    stroke="#0f172a"
+                                    strokeWidth="0.8"
+                                  />
+                                  <text
+                                    x={textX}
+                                    y={textY}
+                                    fill="#ffffff"
+                                    fontSize="4.2"
+                                    fontWeight="900"
+                                    textAnchor="middle"
+                                    dominantBaseline="middle"
+                                    transform={`rotate(${textAngle + 90}, ${textX}, ${textY})`}
+                                  >
+                                    {slice.label}
+                                  </text>
+                                </g>
+                              );
+                            })}
+                          </svg>
+                        </div>
+
+                        {/* Premium Wheel Center Cap */}
+                        <div className="absolute inset-0 m-auto w-12 h-12 rounded-full bg-gradient-to-br from-cyan-300 via-blue-500 to-purple-600 border-2 border-white flex items-center justify-center shadow-lg text-white font-black text-xs z-10">
+                          <i className="fas fa-gem text-base text-cyan-200"></i>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Premium Spin Button & 24hr Timer */}
+                    {(() => {
+                      const nextPremiumSpinTs = lastPremiumSpinTime ? lastPremiumSpinTime + 24 * 60 * 60 * 1000 : 0;
+                      const premDiffMs = nextPremiumSpinTs ? nextPremiumSpinTs - dailyCountdownNow : 0;
+                      const isPremLimitReached = todayPremiumSpinCount >= premiumSpinDailyMaxLimit;
+                      const isPremSpinCoolingDown = isPremLimitReached && premDiffMs > 0;
+
+                      let hours = 0;
+                      let mins = 0;
+                      let secs = 0;
+                      if (isPremSpinCoolingDown && premDiffMs > 0) {
+                        hours = Math.floor(premDiffMs / (1000 * 60 * 60));
+                        mins = Math.floor((premDiffMs % (1000 * 60 * 60)) / (1000 * 60));
+                        secs = Math.floor((premDiffMs % (1000 * 60)) / 1000);
+                      }
+                      const premCountdownStr = `${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+                      const premPercentElapsed = isPremSpinCoolingDown ? Math.min(100, Math.max(0, ((24 * 3600 * 1000 - premDiffMs) / (24 * 3600 * 1000)) * 100)) : 100;
+
+                      return (
+                        <div className="space-y-3">
+                          {isPremSpinCoolingDown && (
+                            <div className="p-3.5 rounded-2xl bg-gradient-to-r from-cyan-950/80 via-slate-900 to-purple-950/60 border border-cyan-500/40 text-center space-y-2 shadow-inner">
+                              <div className="text-[11px] text-cyan-200/90 font-bold flex items-center justify-center gap-1.5">
+                                <i className="fas fa-gem text-cyan-400 animate-bounce"></i>
+                                <span>২৪ ঘণ্টার প্রিমিয়াম স্পিন কুলডাউন চলছে:</span>
+                              </div>
+                              <div className="text-2xl font-black font-mono text-cyan-400 tracking-widest drop-shadow-md py-1 bg-black/40 rounded-xl border border-cyan-500/30">
+                                ⏱️ {premCountdownStr}
+                              </div>
+                              <p className="text-[10px] text-slate-300 font-medium">
+                                পরবর্তী প্রিমিয়াম স্পিন পাবেন <span className="text-cyan-300 font-bold">{hours} ঘণ্টা {mins} মিনিট {secs} সেকেন্ড</span> পর।
+                              </p>
+                              <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden border border-cyan-500/20">
+                                <div
+                                  className="bg-gradient-to-r from-cyan-500 via-blue-400 to-purple-400 h-1.5 rounded-full transition-all duration-1000"
+                                  style={{ width: `${premPercentElapsed}%` }}
+                                ></div>
+                              </div>
+                            </div>
+                          )}
+
+                          <button
+                            onClick={handleStartPremiumSpin}
+                            disabled={isPremiumSpinning || isPremSpinCoolingDown}
+                            className={`w-full py-4 rounded-2xl font-black text-xs sm:text-sm uppercase tracking-wider transition active:scale-95 flex items-center justify-center gap-2 shadow-xl ${
+                              isPremSpinCoolingDown
+                                ? 'bg-slate-800 text-cyan-300/80 border border-cyan-500/20 cursor-not-allowed'
+                                : isPremiumSpinning
+                                ? 'bg-cyan-600 text-white cursor-wait'
+                                : 'bg-gradient-to-r from-cyan-400 via-blue-500 to-purple-600 hover:brightness-110 text-white border border-cyan-300 shadow-cyan-500/30'
+                            }`}
+                          >
+                            {isPremiumSpinning ? (
+                              <>
+                                <i className="fas fa-spinner fa-spin text-base"></i>
+                                <span>SPINNING PREMIUM WHEEL... (ঘুরছে...)</span>
+                              </>
+                            ) : isPremSpinCoolingDown ? (
+                              <>
+                                <i className="fas fa-clock text-cyan-400 animate-pulse"></i>
+                                <span>{premCountdownStr} পর প্রিমিয়াম স্পিন পাবেন</span>
+                              </>
+                            ) : isPremLimitReached ? (
+                              <>
+                                <i className="fas fa-check-double text-emerald-400"></i>
+                                <span>আজকের {premiumSpinDailyMaxLimit}টি প্রিমিয়াম স্পিন সম্পন্ন হয়েছে</span>
+                              </>
+                            ) : (
+                              <>
+                                <i className="fas fa-gem text-white text-base"></i>
+                                <span>SPIN PREMIUM WHEEL NOW (প্রিমিয়াম স্পিন করুন)</span>
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      );
+                    })()}
                   </div>
                 )}
               </div>
@@ -4586,35 +5368,83 @@ export default function App() {
                       </div>
                     </div>
 
-                    {/* Spin Button */}
-                    <button
-                      onClick={handleStartLuckySpin}
-                      disabled={isSpinning || todaySpinCount >= luckySpinDailyMaxLimit}
-                      className={`w-full py-4 rounded-2xl font-black text-xs sm:text-sm uppercase tracking-wider transition active:scale-95 flex items-center justify-center gap-2 shadow-xl ${
-                        todaySpinCount >= luckySpinDailyMaxLimit
-                          ? 'bg-slate-800 text-slate-500 border border-white/5 cursor-not-allowed'
-                          : isSpinning
-                          ? 'bg-amber-600 text-slate-950 cursor-wait'
-                          : 'bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500 hover:brightness-110 text-slate-950 border border-amber-300 shadow-amber-500/20'
-                      }`}
-                    >
-                      {isSpinning ? (
-                        <>
-                          <i className="fas fa-spinner fa-spin text-base"></i>
-                          <span>SPINNING WHEEL... (ঘুরছে...)</span>
-                        </>
-                      ) : todaySpinCount >= luckySpinDailyMaxLimit ? (
-                        <>
-                          <i className="fas fa-check-double text-emerald-400"></i>
-                          <span>আজকের {luckySpinDailyMaxLimit}টি স্পিন সম্পন্ন হয়েছে</span>
-                        </>
-                      ) : (
-                        <>
-                          <i className="fas fa-play text-slate-950 text-base"></i>
-                          <span>SPIN NOW & WIN (স্পিন করুন)</span>
-                        </>
-                      )}
-                    </button>
+                    {/* Spin Button & 24hr Timer */}
+                    {(() => {
+                      const nextSpinTs = lastLuckySpinTime ? lastLuckySpinTime + 24 * 60 * 60 * 1000 : 0;
+                      const diffMs = nextSpinTs ? nextSpinTs - dailyCountdownNow : 0;
+                      const isLimitReached = todaySpinCount >= luckySpinDailyMaxLimit;
+                      const isSpinCoolingDown = isLimitReached && diffMs > 0;
+
+                      let hours = 0;
+                      let mins = 0;
+                      let secs = 0;
+                      if (isSpinCoolingDown && diffMs > 0) {
+                        hours = Math.floor(diffMs / (1000 * 60 * 60));
+                        mins = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+                        secs = Math.floor((diffMs % (1000 * 60)) / 1000);
+                      }
+                      const countdownStr = `${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+                      const percentElapsed = isSpinCoolingDown ? Math.min(100, Math.max(0, ((24 * 3600 * 1000 - diffMs) / (24 * 3600 * 1000)) * 100)) : 100;
+
+                      return (
+                        <div className="space-y-3">
+                          {isSpinCoolingDown && (
+                            <div className="p-3.5 rounded-2xl bg-gradient-to-r from-amber-950/70 via-slate-900 to-amber-950/50 border border-amber-500/30 text-center space-y-2 shadow-inner">
+                              <div className="text-[11px] text-amber-200/90 font-bold flex items-center justify-center gap-1.5">
+                                <i className="fas fa-clock text-amber-400 animate-spin"></i>
+                                <span>২৪ ঘণ্টার স্পিন কুলডাউন চলছে:</span>
+                              </div>
+                              <div className="text-2xl font-black font-mono text-amber-400 tracking-widest drop-shadow-md py-1 bg-black/40 rounded-xl border border-amber-500/20">
+                                ⏱️ {countdownStr}
+                              </div>
+                              <p className="text-[10px] text-slate-300 font-medium">
+                                পরবর্তী স্পিন পাবেন <span className="text-amber-300 font-bold">{hours} ঘণ্টা {mins} মিনিট {secs} সেকেন্ড</span> পর।
+                              </p>
+                              <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden border border-amber-500/20">
+                                <div
+                                  className="bg-gradient-to-r from-amber-500 to-yellow-400 h-1.5 rounded-full transition-all duration-1000"
+                                  style={{ width: `${percentElapsed}%` }}
+                                ></div>
+                              </div>
+                            </div>
+                          )}
+
+                          <button
+                            onClick={handleStartLuckySpin}
+                            disabled={isSpinning || isSpinCoolingDown}
+                            className={`w-full py-4 rounded-2xl font-black text-xs sm:text-sm uppercase tracking-wider transition active:scale-95 flex items-center justify-center gap-2 shadow-xl ${
+                              isSpinCoolingDown
+                                ? 'bg-slate-800 text-amber-300/80 border border-amber-500/20 cursor-not-allowed'
+                                : isSpinning
+                                ? 'bg-amber-600 text-slate-950 cursor-wait'
+                                : 'bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500 hover:brightness-110 text-slate-950 border border-amber-300 shadow-amber-500/20'
+                            }`}
+                          >
+                            {isSpinning ? (
+                              <>
+                                <i className="fas fa-spinner fa-spin text-base"></i>
+                                <span>SPINNING WHEEL... (ঘুরছে...)</span>
+                              </>
+                            ) : isSpinCoolingDown ? (
+                              <>
+                                <i className="fas fa-clock text-amber-400 animate-pulse"></i>
+                                <span>{countdownStr} পর স্পিন করতে পারবেন</span>
+                              </>
+                            ) : isLimitReached ? (
+                              <>
+                                <i className="fas fa-check-double text-emerald-400"></i>
+                                <span>আজকের {luckySpinDailyMaxLimit}টি স্পিন সম্পন্ন হয়েছে</span>
+                              </>
+                            ) : (
+                              <>
+                                <i className="fas fa-play text-slate-950 text-base"></i>
+                                <span>SPIN NOW & WIN (স্পিন করুন)</span>
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      );
+                    })()}
                   </div>
                 ) : (
                   <div className="p-3.5 rounded-xl bg-red-500/10 border border-red-500/20 text-red-300 text-xs font-bold text-center">
@@ -4645,30 +5475,78 @@ export default function App() {
                     {(() => {
                       const todayStr = new Date().toISOString().slice(0, 10);
                       const userStorageKey = 'smm_daily_checkin_' + (currentUser?.uid || 'guest');
+                      const userStorageKeyTime = 'smm_daily_checkin_ts_' + (currentUser?.uid || 'guest');
                       const userLastClaim = localStorage.getItem(userStorageKey) || lastDailyCheckInDate;
-                      const isClaimedToday = userLastClaim === todayStr;
+
+                      let claimTs = lastDailyCheckInTime;
+                      if (!claimTs) {
+                        const savedTs = localStorage.getItem(userStorageKeyTime);
+                        if (savedTs) {
+                          claimTs = parseInt(savedTs, 10);
+                        } else if (userLastClaim === todayStr) {
+                          claimTs = new Date(todayStr).getTime();
+                        }
+                      }
+
+                      const nextClaimTs = claimTs ? claimTs + 24 * 60 * 60 * 1000 : 0;
+                      const diffMs = nextClaimTs ? nextClaimTs - dailyCountdownNow : 0;
+                      const isCoolingDown = Boolean(claimTs) && diffMs > 0;
+
+                      let hours = 0;
+                      let mins = 0;
+                      let secs = 0;
+                      if (isCoolingDown && diffMs > 0) {
+                        hours = Math.floor(diffMs / (1000 * 60 * 60));
+                        mins = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+                        secs = Math.floor((diffMs % (1000 * 60)) / 1000);
+                      }
+                      const countdownStr = `${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+                      const percentElapsed = isCoolingDown ? Math.min(100, Math.max(0, ((24 * 3600 * 1000 - diffMs) / (24 * 3600 * 1000)) * 100)) : 100;
 
                       return (
                         <div className="space-y-3">
                           <div className="p-3 rounded-2xl bg-slate-900/80 border border-white/5 flex items-center justify-between">
                             <span className="text-xs font-bold text-slate-300">আজকের রিওয়ার্ড স্ট্যাটাস:</span>
-                            {isClaimedToday ? (
-                              <span className="text-[10px] font-black bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-2.5 py-1 rounded-full flex items-center gap-1">
-                                <i className="fas fa-check-circle"></i> Claimed Today
+                            {isCoolingDown ? (
+                              <span className="text-[10px] font-black bg-amber-500/20 text-amber-300 border border-amber-500/30 px-2.5 py-1 rounded-full flex items-center gap-1.5 animate-pulse">
+                                <i className="fas fa-hourglass-half text-amber-400"></i> ২৪ ঘণ্টার টাইমার চলছে
                               </span>
                             ) : (
-                              <span className="text-[10px] font-black bg-amber-500/20 text-amber-300 border border-amber-500/30 px-2.5 py-1 rounded-full animate-pulse flex items-center gap-1">
-                                <i className="fas fa-clock"></i> Available Now
+                              <span className="text-[10px] font-black bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-2.5 py-1 rounded-full animate-pulse flex items-center gap-1">
+                                <i className="fas fa-check-circle"></i> Available Now
                               </span>
                             )}
                           </div>
 
+                          {/* Live 24-Hour Timer Box when cooling down */}
+                          {isCoolingDown && (
+                            <div className="p-4 rounded-2xl bg-gradient-to-r from-amber-950/60 via-slate-900 to-amber-950/40 border border-amber-500/30 text-center space-y-2 shadow-inner">
+                              <div className="text-[11px] text-amber-200/90 font-bold flex items-center justify-center gap-1.5">
+                                <i className="fas fa-clock text-amber-400 animate-spin"></i>
+                                <span>পরবর্তী বোনাস পাবেন ২৪ ঘণ্টা পর:</span>
+                              </div>
+                              <div className="text-2xl font-black font-mono text-amber-400 tracking-widest drop-shadow-md py-1 bg-black/40 rounded-xl border border-amber-500/20">
+                                ⏱️ {countdownStr}
+                              </div>
+                              <p className="text-[10px] text-slate-300 font-medium">
+                                পরবর্তী ক্লেইম পাবেন <span className="text-amber-300 font-bold">{hours} ঘণ্টা {mins} মিনিট {secs} সেকেন্ড</span> পর।
+                              </p>
+                              {/* Progress bar */}
+                              <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden border border-amber-500/20">
+                                <div
+                                  className="bg-gradient-to-r from-amber-500 to-yellow-400 h-1.5 rounded-full transition-all duration-1000"
+                                  style={{ width: `${percentElapsed}%` }}
+                                ></div>
+                              </div>
+                            </div>
+                          )}
+
                           <button
                             onClick={handleClaimDailyCheckIn}
-                            disabled={dailyCheckInLoading || isClaimedToday}
+                            disabled={dailyCheckInLoading || isCoolingDown}
                             className={`w-full py-3.5 rounded-2xl font-black text-xs uppercase tracking-wider transition active:scale-95 flex items-center justify-center gap-2 shadow-lg ${
-                              isClaimedToday
-                                ? 'bg-slate-800 text-slate-500 border border-white/5 cursor-not-allowed'
+                              isCoolingDown
+                                ? 'bg-slate-800 text-amber-300/80 border border-amber-500/20 cursor-not-allowed'
                                 : 'bg-gradient-to-r from-amber-500 via-yellow-500 to-amber-600 hover:brightness-110 text-black border border-amber-400/50'
                             }`}
                           >
@@ -4677,10 +5555,10 @@ export default function App() {
                                 <i className="fas fa-spinner fa-spin"></i>
                                 <span>CLAIMING BONUS...</span>
                               </>
-                            ) : isClaimedToday ? (
+                            ) : isCoolingDown ? (
                               <>
-                                <i className="fas fa-check-circle"></i>
-                                <span>আজকের বোনাস ক্লেইম করা সম্পন্ন হয়েছে</span>
+                                <i className="fas fa-clock text-amber-400 animate-pulse"></i>
+                                <span>{countdownStr} পর ক্লেইম করতে পারবেন</span>
                               </>
                             ) : (
                               <>
@@ -5274,6 +6152,12 @@ export default function App() {
                         src={userPhotoURL || currentUser?.photoURL}
                         alt="Profile"
                         className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
+                        referrerPolicy="no-referrer"
+                        onError={(e) => {
+                          e.currentTarget.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(
+                            currentUser?.name || 'User'
+                          )}&background=3b82f6&color=fff&bold=true&size=200`;
+                        }}
                       />
                     ) : (
                       <img
@@ -5282,6 +6166,7 @@ export default function App() {
                         )}&background=3b82f6&color=fff&bold=true&size=200`}
                         alt="Avatar"
                         className="w-full h-full object-cover"
+                        referrerPolicy="no-referrer"
                       />
                     )}
 
@@ -5369,21 +6254,21 @@ export default function App() {
                       Choose Avatar (প্রোফাইল পিকচার গ্যালারি)
                     </h4>
                   </div>
-                  <span className="text-[10px] text-amber-300 font-bold bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
-                    6 Avatars
+                  <span className="text-[10px] text-amber-300 font-bold bg-amber-500/10 px-2.5 py-0.5 rounded border border-amber-500/20">
+                    {presetAvatars.length} Avatars
                   </span>
                 </div>
 
                 <p className="text-[11px] text-slate-300">
-                  নিচের ৬টি অবতার থেকে যেকোনো একটি পছন্দ করে সিলেক্ট করুন:
+                  গ্যালারি থেকে আপনার পছন্দের যেকোনো একটি প্রোফাইল পিকচার সিলেক্ট করুন:
                 </p>
 
-                <div className="grid grid-cols-6 gap-2 sm:gap-3 pt-1">
-                  {PRESET_AVATARS.map((av, idx) => {
+                <div className="grid grid-cols-4 sm:grid-cols-6 gap-2 sm:gap-3 pt-1">
+                  {presetAvatars.map((av, idx) => {
                     const isSelected = (userPhotoURL || currentUser?.photoURL) === av.url;
                     return (
                       <button
-                        key={av.id}
+                        key={av.id || idx}
                         onClick={() => handleSelectPresetAvatar(av.url)}
                         disabled={profileSubmitting}
                         className={`relative aspect-square rounded-2xl overflow-hidden border-2 transition active:scale-95 group ${
@@ -5391,9 +6276,17 @@ export default function App() {
                             ? 'border-amber-400 ring-4 ring-amber-500/30 scale-105 shadow-lg'
                             : 'border-white/10 hover:border-amber-400/50 hover:scale-105'
                         }`}
-                        title={`Select Avatar ${idx + 1}`}
+                        title={av.label || `Avatar ${idx + 1}`}
                       >
-                        <img src={av.url} alt={`Avatar ${idx + 1}`} className="w-full h-full object-cover" />
+                        <img
+                          src={av.url}
+                          alt={av.label || `Avatar ${idx + 1}`}
+                          className="w-full h-full object-cover"
+                          referrerPolicy="no-referrer"
+                          onError={(e) => {
+                            e.currentTarget.src = `https://ui-avatars.com/api/?name=Avatar+${idx + 1}&background=3b82f6&color=fff&bold=true`;
+                          }}
+                        />
                         {isSelected && (
                           <div className="absolute inset-0 bg-amber-500/25 flex items-center justify-center">
                             <i className="fas fa-check-circle text-amber-300 text-xs drop-shadow"></i>
@@ -5681,6 +6574,17 @@ export default function App() {
 
                   <div className="flex items-center gap-2">
                     <button
+                      onClick={() => {
+                        setAdminSubTab('avatars');
+                        haptic('light');
+                      }}
+                      className="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:brightness-110 text-xs font-black text-white flex items-center gap-1.5 shadow-md shadow-cyan-500/20 border border-cyan-400/30 transition active:scale-95"
+                    >
+                      <i className="fas fa-id-badge text-cyan-200"></i>
+                      <span>Profile Pics ({presetAvatars.length})</span>
+                    </button>
+
+                    <button
                       onClick={handleExportBackup}
                       className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-bold text-slate-300 border border-white/10 flex items-center gap-1.5 transition active:scale-95"
                     >
@@ -5728,7 +6632,8 @@ export default function App() {
                   { id: 'notifications', label: 'Broadcast', icon: 'fas fa-bullhorn' },
                   { id: 'links', label: 'Support Links', icon: 'fas fa-link' },
                   { id: 'settings', label: 'Settings', icon: 'fas fa-cog' },
-                  { id: 'tasks', label: 'Tasks & Screenshots Proof (টাস্ক প্রুফ)', icon: 'fas fa-tasks' }
+                  { id: 'tasks', label: 'Tasks & Screenshots Proof (টাস্ক প্রুফ)', icon: 'fas fa-tasks' },
+                  { id: 'avatars', label: 'Avatars & Profile Pics (প্রোফাইল পিকচার)', icon: 'fas fa-id-badge' }
                 ].map((st) => (
                   <button
                     key={st.id}
@@ -6090,6 +6995,128 @@ export default function App() {
                       </div>
                     </div>
                   </div>
+
+                  {/* PREMIUM DIAMOND SPIN SYSTEM MANAGEMENT (প্রিমিয়াম ডায়মন্ড স্পিন কন্ট্রোল) */}
+                  <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-cyan-950/80 via-blue-950/70 to-slate-900 border border-cyan-500/50 shadow-xl space-y-4">
+                    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-3">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-cyan-400 via-blue-500 to-purple-600 text-white flex items-center justify-center text-lg font-black shadow-lg">
+                          <i className="fas fa-gem"></i>
+                        </div>
+                        <div>
+                          <h4 className="font-extrabold text-sm text-cyan-300 flex items-center gap-2">
+                            <span>Premium Diamond Spin System (প্রিমিয়াম স্পিন কন্ট্রোল)</span>
+                            <span className="text-[9px] font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 px-2 py-0.5 rounded-md">
+                              ৳0.30 - ৳10.00 TK
+                            </span>
+                          </h4>
+                          <p className="text-[11px] text-slate-300">
+                            প্রিমিয়াম স্পিনের জন্য সিস্টেম অন/অফ, ডেইলি স্পিন লিমিট এবং প্রিসেট পুরষ্কার কন্ট্রোল
+                          </p>
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={() => {
+                          const nextVal = !premiumSpinEnabled;
+                          setPremiumSpinEnabled(nextVal);
+                          saveTaskConfigToFirestore({ premiumSpinEnabled: nextVal });
+                          showToast(
+                            nextVal
+                              ? '🟢 প্রিমিয়াম স্পিন সিস্টেম চালু করা হয়েছে'
+                              : '🔴 প্রিমিয়াম স্পিন সিস্টেম বন্ধ করা হয়েছে',
+                            'info'
+                          );
+                          haptic('heavy');
+                        }}
+                        className={`px-3.5 py-2 rounded-xl font-extrabold text-xs transition border flex items-center gap-2 shadow-md ${
+                          premiumSpinEnabled
+                            ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 hover:bg-emerald-500/30'
+                            : 'bg-red-500/20 text-red-300 border-red-500/40 hover:bg-red-500/30'
+                        }`}
+                      >
+                        <i className={`fas ${premiumSpinEnabled ? 'fa-check-circle' : 'fa-times-circle'}`}></i>
+                        <span>{premiumSpinEnabled ? 'PREMIUM SPIN ON' : 'PREMIUM SPIN OFF'}</span>
+                      </button>
+                    </div>
+
+                    {/* Premium Spin Config Options */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {/* Required Minimum Wallet Balance */}
+                      <div className="space-y-1.5 bg-black/40 p-3.5 rounded-xl border border-cyan-500/30">
+                        <label className="text-xs font-extrabold text-cyan-300 block">
+                          স্পিন করার নূন্যতম ব্যালেন্স (Min Balance TK):
+                        </label>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="number"
+                            min="0"
+                            max="10000"
+                            className="input-modern text-xs font-mono font-bold text-cyan-300 py-2 px-3"
+                            value={premiumSpinMinBalance}
+                            onChange={(e) => setPremiumSpinMinBalance(Math.max(0, parseFloat(e.target.value) || 0))}
+                          />
+                          <button
+                            onClick={() => {
+                              saveTaskConfigToFirestore({ premiumSpinMinBalance });
+                              showToast(`✅ প্রিমিয়াম স্পিন নূন্যতম ব্যালেন্স ৳ ${premiumSpinMinBalance} সেভ হয়েছে!`, 'success');
+                              haptic('success');
+                            }}
+                            className="px-3 py-2 bg-cyan-500 text-slate-950 hover:bg-cyan-400 font-extrabold text-xs rounded-xl shadow transition active:scale-95 shrink-0"
+                          >
+                            SET MIN BAL
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Daily Premium Spin Limit */}
+                      <div className="space-y-1.5 bg-black/40 p-3.5 rounded-xl border border-cyan-500/30">
+                        <label className="text-xs font-extrabold text-cyan-300 block">
+                          দৈনিক সর্বোচ্চ প্রিমিয়াম স্পিন সংখ্যা (Daily Limit):
+                        </label>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="number"
+                            min="1"
+                            max="1000"
+                            className="input-modern text-xs font-mono font-bold text-cyan-300 py-2 px-3"
+                            value={premiumSpinDailyMaxLimit}
+                            onChange={(e) => setPremiumSpinDailyMaxLimit(Math.max(1, parseInt(e.target.value) || 1))}
+                          />
+                          <button
+                            onClick={() => {
+                              saveTaskConfigToFirestore({ premiumSpinDailyMaxLimit });
+                              showToast(`✅ দৈনিক প্রিমিয়াম স্পিন লিমিট ${premiumSpinDailyMaxLimit}টি সেভ হয়েছে!`, 'success');
+                              haptic('success');
+                            }}
+                            className="px-3 py-2 bg-cyan-500 text-slate-950 hover:bg-cyan-400 font-extrabold text-xs rounded-xl shadow transition active:scale-95 shrink-0"
+                          >
+                            SET LIMIT
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Premium Slices Preview & Probabilities */}
+                    <div className="pt-2 border-t border-cyan-500/20 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-cyan-200 block">
+                          প্রিমিয়াম ডায়মন্ড স্পিন পুরষ্কারসমূহ (৳0.30 - ৳10.00 TK):
+                        </span>
+                        <span className="text-[10px] font-black text-cyan-400 bg-cyan-500/20 px-2 py-0.5 rounded border border-cyan-500/40 font-mono">
+                          90% WIN RATE ON ৳0.30 - ৳1.00
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-4 sm:grid-cols-8 gap-2">
+                        {premiumSpinRewardOptions.map((amt, idx) => (
+                          <div key={idx} className="bg-slate-950 p-2 rounded-xl border border-cyan-500/40 text-center">
+                            <span className="text-[9px] text-cyan-300/70 block">Slice #{idx + 1}</span>
+                            <span className="text-xs font-black text-cyan-300 font-mono">৳{amt.toFixed(2)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
                 </div>
               )}
 
@@ -6252,8 +7279,11 @@ export default function App() {
                       <button
                         onClick={() => {
                           const key = 'smm_daily_checkin_' + (currentUser?.uid || 'guest');
+                          const keyTs = 'smm_daily_checkin_ts_' + (currentUser?.uid || 'guest');
                           localStorage.removeItem(key);
+                          localStorage.removeItem(keyTs);
                           setLastDailyCheckInDate('');
+                          setLastDailyCheckInTime(0);
                           showToast('🔄 টেস্ট কুলডাউন রিসেট করা হয়েছে! এখন আবার ক্লেইম টেস্ট করতে পারবেন।', 'success');
                           haptic('heavy');
                         }}
@@ -7710,7 +8740,7 @@ export default function App() {
                       <span>Add New System Task (নতুন টাস্ক যোগ করুন)</span>
                     </h4>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                       <div>
                         <label className="form-label">Task Title (টাস্ক এর নাম)</label>
                         <input
@@ -7729,6 +8759,16 @@ export default function App() {
                           placeholder="e.g. 5"
                           value={newTaskReward}
                           onChange={(e) => setNewTaskReward(e.target.value)}
+                        />
+                      </div>
+                      <div>
+                        <label className="form-label">Max User Limit (ইউজার লিমিট)</label>
+                        <input
+                          type="number"
+                          className="input-modern text-xs font-mono"
+                          placeholder="0 = Unlimited (আনলিমিটেড)"
+                          value={newTaskMaxUserLimit}
+                          onChange={(e) => setNewTaskMaxUserLimit(e.target.value)}
                         />
                       </div>
                     </div>
@@ -7809,36 +8849,75 @@ export default function App() {
                     <div className="pt-3 border-t border-white/10 space-y-2">
                       <h5 className="font-extrabold text-xs text-slate-300">Current Active Tasks ({customTasks.length})</h5>
                       <div className="space-y-2">
-                        {customTasks.map((task) => (
-                          <div key={task.id} className="p-3 rounded-xl bg-slate-900/80 border border-white/5 flex items-center justify-between gap-2">
-                            <div className="flex items-center gap-2.5">
-                              {task.image ? (
-                                <img
-                                  src={task.image}
-                                  alt={task.title}
-                                  onClick={() => setSelectedScreenshotPreview(task.image!)}
-                                  className="w-10 h-10 rounded-xl object-cover border border-amber-500/40 cursor-pointer hover:scale-105 transition"
-                                />
-                              ) : (
-                                <div className="w-8 h-8 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center text-xs">
-                                  <i className={task.icon || 'fas fa-tasks'}></i>
+                        {customTasks.map((task) => {
+                          const taskSubs = allTaskSubmissions.filter(
+                            (s) => s.taskId === task.id && (s.status === 'Approved' || s.status === 'Pending')
+                          ).length;
+                          const isFull = task.maxUserLimit && task.maxUserLimit > 0 && taskSubs >= task.maxUserLimit;
+
+                          return (
+                            <div key={task.id} className="p-3 rounded-xl bg-slate-900/80 border border-white/5 flex flex-wrap items-center justify-between gap-3">
+                              <div className="flex items-center gap-2.5">
+                                {task.image ? (
+                                  <img
+                                    src={task.image}
+                                    alt={task.title}
+                                    onClick={() => setSelectedScreenshotPreview(task.image!)}
+                                    className="w-10 h-10 rounded-xl object-cover border border-amber-500/40 cursor-pointer hover:scale-105 transition shrink-0"
+                                  />
+                                ) : (
+                                  <div className="w-8 h-8 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center text-xs shrink-0">
+                                    <i className={task.icon || 'fas fa-tasks'}></i>
+                                  </div>
+                                )}
+                                <div>
+                                  <h6 className="font-bold text-xs text-white">{task.title}</h6>
+                                  <div className="flex flex-wrap items-center gap-2 pt-0.5">
+                                    <span className="text-[10px] text-emerald-400 font-mono font-bold">Reward: ৳{task.reward}</span>
+                                    <span className={`text-[9px] font-mono font-extrabold px-2 py-0.5 rounded ${
+                                      isFull
+                                        ? 'bg-red-500/20 text-red-300 border border-red-500/30'
+                                        : 'bg-cyan-500/10 text-cyan-300 border border-cyan-500/20'
+                                    }`}>
+                                      <i className="fas fa-users text-[8px] mr-1"></i>
+                                      {task.maxUserLimit && task.maxUserLimit > 0
+                                        ? `কমপ্লিট: ${taskSubs} / ${task.maxUserLimit} জন (${isFull ? 'লিমিট ফুল' : 'চলছে'})`
+                                        : `কমপ্লিট: ${taskSubs} জন (আনলিমিটেড)`}
+                                    </span>
+                                  </div>
                                 </div>
-                              )}
-                              <div>
-                                <h6 className="font-bold text-xs text-white">{task.title}</h6>
-                                <span className="text-[10px] text-emerald-400 font-mono font-bold">Reward: ৳{task.reward}</span>
+                              </div>
+
+                              <div className="flex items-center gap-2">
+                                <button
+                                  onClick={() => {
+                                    const promptVal = prompt(
+                                      `টাস্ক: "${task.title}"\nকতো জন ইউজার কমপ্লিট করতে পারবে লিখে দিন (০ বা খালি রাখলে আনলিমিটেড):`,
+                                      (task.maxUserLimit || 0).toString()
+                                    );
+                                    if (promptVal !== null) {
+                                      const numVal = parseInt(promptVal.trim(), 10);
+                                      handleUpdateTaskLimit(task.id, isNaN(numVal) ? 0 : numVal);
+                                    }
+                                  }}
+                                  className="px-2.5 py-1.5 rounded-lg bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 text-[10px] font-bold flex items-center gap-1 transition active:scale-95"
+                                  title="Change Max User Limit"
+                                >
+                                  <i className="fas fa-user-edit"></i>
+                                  <span>লিমিট পরিবর্তন</span>
+                                </button>
+
+                                <button
+                                  onClick={() => handleDeleteAdminTask(task.id)}
+                                  className="w-7 h-7 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 flex items-center justify-center text-xs transition"
+                                  title="Delete Task"
+                                >
+                                  <i className="fas fa-trash-alt"></i>
+                                </button>
                               </div>
                             </div>
-
-                            <button
-                              onClick={() => handleDeleteAdminTask(task.id)}
-                              className="w-7 h-7 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 flex items-center justify-center text-xs transition"
-                              title="Delete Task"
-                            >
-                              <i className="fas fa-trash-alt"></i>
-                            </button>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     </div>
                   </div>
@@ -8143,6 +9222,149 @@ export default function App() {
                     >
                       SAVE AD EARN SETTINGS
                     </button>
+                  </div>
+                </div>
+              )}
+
+              {/* SUB TAB 9: AVATARS & PROFILE PICTURES (প্রোফাইল পিকচার গ্যালারি কন্ট্রোল) */}
+              {adminSubTab === 'avatars' && (
+                <div className="space-y-5">
+                  {/* Admin Avatars Header Banner */}
+                  <div className="p-4 rounded-2xl bg-gradient-to-r from-cyan-950/60 via-blue-900/40 to-slate-900 border border-cyan-500/30 flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-cyan-500/20 border border-cyan-500/40 flex items-center justify-center text-cyan-400 text-base">
+                        <i className="fas fa-id-badge"></i>
+                      </div>
+                      <div>
+                        <h3 className="font-black text-sm text-white">Profile Picture Gallery Control (প্রোফাইল পিকচার ম্যানেজমেন্ট)</h3>
+                        <p className="text-[10px] text-cyan-200/80">ইউজার প্রোফাইলের জন্য অবতার বা প্রোফাইল পিকচার যোগ করুন বা রিমুভ করুন (বাড়ানো/কমানো)</p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 font-mono text-xs font-bold text-cyan-300 bg-black/40 px-3 py-1.5 rounded-xl border border-cyan-500/20">
+                      <span>Total Avatars:</span>
+                      <span className="text-slate-950 bg-cyan-400 px-2 py-0.5 rounded-md text-[11px] font-black">
+                        {presetAvatars.length}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Add / Upload New Avatar Form */}
+                  <div className="glass-card p-4 sm:p-5 space-y-4 border border-cyan-500/30 bg-slate-950/80">
+                    <div className="flex items-center justify-between border-b border-white/10 pb-2">
+                      <div className="flex items-center gap-2">
+                        <i className="fas fa-plus-circle text-cyan-400 text-sm"></i>
+                        <h4 className="font-extrabold text-xs text-white uppercase tracking-wider">
+                          Upload / Add New Profile Picture (নতুন পিকচার যোগ করুন)
+                        </h4>
+                      </div>
+                      <span className="text-[10px] text-cyan-300 font-bold bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20">
+                        ADD AVATAR
+                      </span>
+                    </div>
+
+                    {/* Method 1: File Upload from Device */}
+                    <div className="bg-slate-900/90 p-3.5 rounded-2xl border border-white/10 space-y-2">
+                      <label className="text-xs font-extrabold text-cyan-300 block">
+                        ১. ডিভাইস (কম্পিউটার/মোবাইল) থেকে সরাসরি আপলোড করুন:
+                      </label>
+                      <div className="flex items-center gap-3">
+                        <label className="flex-1 cursor-pointer bg-gradient-to-r from-cyan-500 to-blue-600 hover:brightness-110 text-white py-2.5 px-4 rounded-xl font-extrabold text-xs flex items-center justify-center gap-2 shadow-lg shadow-cyan-500/20 transition active:scale-95">
+                          <i className={`fas ${adminAvatarUploadLoading ? 'fa-spinner fa-spin' : 'fa-cloud-upload-alt'}`}></i>
+                          <span>{adminAvatarUploadLoading ? 'আপলোড হচ্ছে...' : '📁 সিলেক্ট পিকচার ও আপলোড করুন (UPLOAD IMAGE)'}</span>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={handleAdminAvatarFileUpload}
+                            disabled={adminAvatarUploadLoading}
+                            className="hidden"
+                          />
+                        </label>
+                      </div>
+                    </div>
+
+                    {/* Method 2: Direct Image URL */}
+                    <div className="bg-slate-900/90 p-3.5 rounded-2xl border border-white/10 space-y-2">
+                      <label className="text-xs font-extrabold text-cyan-300 block">
+                        ২. অথবা সরাসরি ইমেজের URL লিংক বসান:
+                      </label>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                        <input
+                          type="text"
+                          className="input-modern text-xs sm:col-span-2"
+                          placeholder="https://example.com/my-photo.jpg"
+                          value={adminNewAvatarUrl}
+                          onChange={(e) => setAdminNewAvatarUrl(e.target.value)}
+                        />
+                        <button
+                          onClick={() => handleAddAdminAvatar()}
+                          className="px-4 py-2.5 bg-cyan-500 text-slate-950 hover:bg-cyan-400 font-extrabold text-xs rounded-xl shadow transition active:scale-95 flex items-center justify-center gap-1.5"
+                        >
+                          <i className="fas fa-plus"></i>
+                          <span>ADD URL AVATAR</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Current Avatars Gallery & Management (বাড়ানো/কমানো) */}
+                  <div className="glass-card p-4 sm:p-5 space-y-4 border border-white/10">
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 pb-3">
+                      <div>
+                        <h4 className="font-extrabold text-xs text-white uppercase tracking-wider flex items-center gap-2">
+                          <i className="fas fa-images text-amber-400"></i>
+                          <span>Current Gallery Avatars ({presetAvatars.length})</span>
+                        </h4>
+                        <p className="text-[10px] text-slate-400 pt-0.5">যেকোনো পিকচার কমানোর জন্য ট্র্যাশ আইকনে ক্লিক করে ডিলিট করুন</p>
+                      </div>
+
+                      <button
+                        onClick={handleResetDefaultAvatars}
+                        className="px-3 py-1.5 bg-red-500/20 text-red-300 hover:bg-red-500/30 border border-red-500/30 font-bold text-[11px] rounded-xl transition active:scale-95 flex items-center gap-1.5"
+                      >
+                        <i className="fas fa-undo"></i>
+                        <span>RESET TO DEFAULT 6 AVATARS</span>
+                      </button>
+                    </div>
+
+                    {/* Gallery Grid */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-3">
+                      {presetAvatars.map((av, idx) => (
+                        <div
+                          key={av.id || idx}
+                          className="group relative bg-slate-900 border border-white/10 rounded-2xl overflow-hidden shadow-md space-y-0 flex flex-col justify-between"
+                        >
+                          <div className="aspect-square w-full relative overflow-hidden bg-slate-950">
+                            <img
+                              src={av.url}
+                              alt={av.label || `Avatar ${idx + 1}`}
+                              className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
+                              referrerPolicy="no-referrer"
+                              onError={(e) => {
+                                e.currentTarget.src = `https://ui-avatars.com/api/?name=Avatar+${idx + 1}&background=3b82f6&color=fff&bold=true`;
+                              }}
+                            />
+                            <div className="absolute top-1 left-1 bg-black/70 backdrop-blur-md text-[9px] font-mono text-cyan-300 px-2 py-0.5 rounded-md font-extrabold">
+                              #{idx + 1}
+                            </div>
+                          </div>
+
+                          <div className="p-2 bg-slate-950/90 border-t border-white/5 flex items-center justify-between gap-1">
+                            <span className="text-[10px] font-bold text-slate-300 truncate font-mono">
+                              {av.label || `Avatar ${idx + 1}`}
+                            </span>
+
+                            <button
+                              onClick={() => handleDeleteAdminAvatar(av.id)}
+                              className="w-7 h-7 rounded-lg bg-red-500/10 hover:bg-red-500 text-red-400 hover:text-white flex items-center justify-center text-xs transition active:scale-90 shrink-0"
+                              title="Delete this Avatar"
+                            >
+                              <i className="fas fa-trash-alt"></i>
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 </div>
               )}
@@ -9192,6 +10414,42 @@ export default function App() {
             </div>
           )}
 
+          {/* PREMIUM DIAMOND SPIN WINNER MODAL */}
+          {showPremiumSpinWinModal && (
+            <div className="fixed inset-0 z-[110] bg-black/90 backdrop-blur-md flex items-center justify-center p-4 animate-fade-in">
+              <div className="bg-slate-900 border border-cyan-400 rounded-3xl max-w-sm w-full p-6 text-center space-y-4 shadow-[0_0_70px_rgba(6,182,212,0.5)]">
+                <div className="w-20 h-20 rounded-3xl bg-gradient-to-br from-cyan-300 via-blue-500 to-purple-600 text-white flex items-center justify-center text-4xl font-black mx-auto shadow-xl animate-bounce border-2 border-white">
+                  <i className="fas fa-gem text-cyan-200"></i>
+                </div>
+
+                <div className="space-y-1">
+                  <span className="text-[10px] font-black uppercase text-cyan-300 tracking-widest bg-cyan-500/20 px-3.5 py-1 rounded-full border border-cyan-500/40">
+                    💎 PREMIUM DIAMOND SPIN WINNER
+                  </span>
+                  <h3 className="font-black text-xl text-cyan-300 pt-2">
+                    অভিনন্দন! প্রিমিয়াম স্পিন পুরষ্কার!
+                  </h3>
+                  <p className="text-4xl font-black text-cyan-300 font-mono py-2 filter drop-shadow-[0_2px_10px_rgba(6,182,212,0.6)]">
+                    ৳ {wonPremiumSpinAmount.toFixed(2)}
+                  </p>
+                  <p className="text-xs text-slate-300">
+                    প্রিমিয়াম ডায়মন্ড স্পিনের পুরষ্কারটি সফলভাবে আপনার ওয়ালেটে জমা হয়েছে!
+                  </p>
+                </div>
+
+                <button
+                  onClick={() => {
+                    setShowPremiumSpinWinModal(false);
+                    haptic('light');
+                  }}
+                  className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-cyan-400 via-blue-500 to-purple-600 hover:brightness-110 text-white font-black text-xs uppercase tracking-wider shadow-lg shadow-cyan-500/30 transition active:scale-95"
+                >
+                  <span>CLAIM PREMIUM REWARD (ধন্যবাদ)</span>
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* THEME COLOR SELECTOR MODAL */}
           {showThemeModal && (
             <div className="fixed inset-0 z-[80] bg-black/85 backdrop-blur-md flex flex-col justify-center p-3 sm:p-4 animate-fade-in">
@@ -9528,6 +10786,12 @@ export default function App() {
                   src={userPhotoURL || currentUser?.photoURL}
                   alt="Profile"
                   className="w-5 h-5 rounded-full object-cover border border-amber-400"
+                  referrerPolicy="no-referrer"
+                  onError={(e) => {
+                    e.currentTarget.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(
+                      currentUser?.name || 'User'
+                    )}&background=3b82f6&color=fff&bold=true`;
+                  }}
                 />
               ) : (
                 <i className="fas fa-user-circle"></i>
