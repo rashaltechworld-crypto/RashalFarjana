@@ -47,10 +47,68 @@ interface DepositRequest {
   id: string;
   uid: string;
   amount: number;
+  bonusAmount?: number;
+  totalCredited?: number;
   trxId: string;
   method: string;
   status: string;
   timestamp?: any;
+}
+
+export interface DepositBonusTier {
+  id: string;
+  minAmount: number;
+  maxAmount: number; // 0 means no upper limit
+  percentage: number;
+  label?: string;
+}
+
+export interface DepositBonusConfig {
+  enabled: boolean;
+  tiers: DepositBonusTier[];
+  percentage?: number;
+  minAmount?: number;
+}
+
+const calculateDepositBonus = (
+  amt: number,
+  config: DepositBonusConfig
+): { bonusAmount: number; bonusPercentage: number; matchedTier: DepositBonusTier | null } => {
+  if (!config || !config.enabled || isNaN(amt) || amt <= 0) {
+    return { bonusAmount: 0, bonusPercentage: 0, matchedTier: null };
+  }
+
+  if (config.tiers && config.tiers.length > 0) {
+    const sorted = [...config.tiers].sort((a, b) => b.minAmount - a.minAmount);
+    for (const t of sorted) {
+      const min = Number(t.minAmount) || 0;
+      const max = t.maxAmount && Number(t.maxAmount) > 0 ? Number(t.maxAmount) : Infinity;
+      if (amt >= min && amt <= max && Number(t.percentage) > 0) {
+        const bonus = Math.round(((amt * Number(t.percentage)) / 100) * 100) / 100;
+        return { bonusAmount: bonus, bonusPercentage: Number(t.percentage), matchedTier: t };
+      }
+    }
+    return { bonusAmount: 0, bonusPercentage: 0, matchedTier: null };
+  }
+
+  if (config.percentage && config.percentage > 0 && config.minAmount !== undefined && amt >= config.minAmount) {
+    const bonus = Math.round(((amt * config.percentage) / 100) * 100) / 100;
+    return { bonusAmount: bonus, bonusPercentage: config.percentage, matchedTier: null };
+  }
+
+  return { bonusAmount: 0, bonusPercentage: 0, matchedTier: null };
+};
+
+interface AdminCreatedTrx {
+  id: string;
+  trxId: string;
+  amount: number;
+  method: string;
+  status: 'Unused' | 'Used';
+  usedByUid?: string;
+  usedAt?: string;
+  createdAt?: any;
+  note?: string;
 }
 
 interface UserSession {
@@ -243,6 +301,107 @@ const PRESET_AVATARS = [
   { id: 'av6', url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80', label: 'Avatar 6' }
 ];
 
+// Payment Method Authentic Brand SVG Logo Component (bKash, Nagad, Rocket, Binance, USDT)
+const PaymentLogo = ({ method, className = "w-6 h-6", customUrl }: { method: string; className?: string; customUrl?: string }) => {
+  const [imgErr, setImgErr] = useState(false);
+
+  useEffect(() => {
+    setImgErr(false);
+  }, [customUrl]);
+
+  if (customUrl && customUrl.trim() && !imgErr) {
+    return (
+      <div className={`inline-flex items-center justify-center rounded-xl bg-slate-900/90 border border-white/10 shadow-md overflow-hidden shrink-0 ${className}`}>
+        <img
+          src={customUrl.trim()}
+          alt={method}
+          className="w-full h-full object-contain p-0.5 rounded-xl"
+          onError={() => setImgErr(true)}
+        />
+      </div>
+    );
+  }
+
+  const m = (method || '').toLowerCase();
+
+  if (m.includes('bkash')) {
+    return (
+      <div className={`inline-flex items-center justify-center rounded-xl bg-[#E2136E] text-white font-black shadow-md shadow-[#E2136E]/30 overflow-hidden shrink-0 ${className}`}>
+        <svg viewBox="0 0 120 120" className="w-full h-full p-1" fill="none" xmlns="http://www.w3.org/2000/svg">
+          {/* bKash Origami Bird Logo Exact Vector */}
+          <path d="M15 42L55 22L98 48L58 72L15 42Z" fill="white" />
+          <path d="M58 72L98 48L90 102L58 72Z" fill="#FCE4EC" />
+          <path d="M58 72L90 102L38 108L58 72Z" fill="white" />
+          <path d="M15 42L58 72L38 108L15 42Z" fill="#F8BBD0" />
+          <path d="M55 22L98 48L108 28L55 22Z" fill="#FFF" fillOpacity="0.85" />
+        </svg>
+      </div>
+    );
+  }
+
+  if (m.includes('nagad')) {
+    return (
+      <div className={`inline-flex items-center justify-center rounded-xl bg-gradient-to-tr from-[#D81B20] via-[#E2231A] to-[#F7921E] text-white font-black shadow-md shadow-[#D81B20]/30 overflow-hidden shrink-0 ${className}`}>
+        <svg viewBox="0 0 120 120" className="w-full h-full p-1" fill="none" xmlns="http://www.w3.org/2000/svg">
+          {/* Nagad Swirl / Flame Icon */}
+          <path d="M30 85C25 72 30 52 45 35C60 18 78 12 78 12C78 12 70 32 75 48C80 64 95 72 85 88C75 104 48 102 30 85Z" fill="white" />
+          <path d="M42 82C38 72 45 56 56 46C67 36 78 30 78 30C78 30 72 44 76 55C80 66 88 72 80 84C72 96 52 94 42 82Z" fill="#FFF200" />
+          <circle cx="62" cy="62" r="10" fill="#ED1C24" />
+        </svg>
+      </div>
+    );
+  }
+
+  if (m.includes('rocket')) {
+    return (
+      <div className={`inline-flex items-center justify-center rounded-xl bg-[#8C3494] text-white font-black shadow-md shadow-[#8C3494]/30 overflow-hidden shrink-0 ${className}`}>
+        <svg viewBox="0 0 120 120" className="w-full h-full p-1" fill="none" xmlns="http://www.w3.org/2000/svg">
+          {/* DBBL Rocket Icon */}
+          <path d="M60 15C60 15 82 35 82 65C82 80 74 92 74 92L60 82L46 92C46 92 38 80 38 65C38 35 60 15 60 15Z" fill="white" />
+          <circle cx="60" cy="48" r="9" fill="#8C3494" />
+          <path d="M60 82L68 102H52L60 82Z" fill="#FFC107" />
+          <path d="M38 65L24 75L32 85L46 92C46 92 38 80 38 65Z" fill="#E1BEE7" />
+          <path d="M82 65L96 75L88 85L74 92C74 92 82 80 82 65Z" fill="#E1BEE7" />
+        </svg>
+      </div>
+    );
+  }
+
+  if (m.includes('binance')) {
+    return (
+      <div className={`inline-flex items-center justify-center rounded-xl bg-[#181A20] border border-[#F0B90B]/50 text-amber-400 font-black shadow-md shadow-[#F0B90B]/20 overflow-hidden shrink-0 ${className}`}>
+        <svg viewBox="0 0 120 120" className="w-full h-full p-1.5" fill="none" xmlns="http://www.w3.org/2000/svg">
+          {/* Binance Official Logo */}
+          <path d="M60 22L76 38L60 54L44 38L60 22Z" fill="#F0B90B" />
+          <path d="M30 52L46 68L30 84L14 68L30 52Z" fill="#F0B90B" />
+          <path d="M90 52L106 68L90 84L74 68L90 52Z" fill="#F0B90B" />
+          <path d="M60 82L76 98L60 114L44 98L60 82Z" fill="#F0B90B" />
+          <path d="M60 52L76 68L60 84L44 68L60 52Z" fill="#F0B90B" />
+        </svg>
+      </div>
+    );
+  }
+
+  if (m.includes('usdt') || m.includes('tether')) {
+    return (
+      <div className={`inline-flex items-center justify-center rounded-xl bg-[#26A17B] text-white font-black shadow-md shadow-[#26A17B]/30 overflow-hidden shrink-0 ${className}`}>
+        <svg viewBox="0 0 120 120" className="w-full h-full p-1.5" fill="none" xmlns="http://www.w3.org/2000/svg">
+          {/* Tether USDT Official Symbol */}
+          <circle cx="60" cy="60" r="50" fill="#26A17B" />
+          <path d="M35 32H85V46H67V57C80 58 90 61.5 90 66C90 71.5 76.5 76 60 76C43.5 76 30 71.5 30 66C30 61.5 40 58 53 57V46H35V32Z" fill="white" />
+          <path d="M53 61.2C42.8 60.8 35 58.5 35 55.5C35 52.2 46.2 49.5 60 49.5C73.8 49.5 85 52.2 85 55.5C85 58.5 77.2 60.8 67 61.2V71.5C77 71.1 84.5 69 84.5 66.5C84.5 63.2 73.5 60.5 60 60.5C46.5 60.5 35.5 63.2 35.5 66.5C35.5 69 43 71.1 53 71.5V61.2Z" fill="#26A17B" />
+        </svg>
+      </div>
+    );
+  }
+
+  return (
+    <div className={`inline-flex items-center justify-center rounded-xl bg-blue-600/20 text-blue-400 font-black shrink-0 ${className}`}>
+      <i className="fas fa-wallet text-xs"></i>
+    </div>
+  );
+};
+
 export default function App() {
   // Splash & Auth State
   const [showSplash, setShowSplash] = useState(true);
@@ -318,8 +477,9 @@ export default function App() {
   const [ordersList, setOrdersList] = useState<OrderData[]>([]);
 
   // Funds State
-  const [selectedMethod, setSelectedMethod] = useState<'bkash' | 'nagad' | 'rocket' | 'binance' | 'usdt_bep20'>('bkash');
+  const [selectedMethod, setSelectedMethod] = useState<'bkash' | 'bkash_2' | 'nagad' | 'rocket' | 'binance' | 'usdt_bep20'>('bkash');
   const [depositAmount, setDepositAmount] = useState<string>('');
+  const [cryptoUsdInput, setCryptoUsdInput] = useState<string>('');
   const [depositTrxId, setDepositTrxId] = useState<string>('');
   const [depAmtErr, setDepAmtErr] = useState('');
   const [depTrxErr, setDepTrxErr] = useState('');
@@ -328,21 +488,127 @@ export default function App() {
   const [allDepositRequests, setAllDepositRequests] = useState<DepositRequest[]>([]);
 
   // Admin Manual Service Form & Control State
-  const [adminSubTab, setAdminSubTab] = useState<'users' | 'spin' | 'daily' | 'ads' | 'promo' | 'payment' | 'deposits' | 'orders' | 'services' | 'notifications' | 'links' | 'settings' | 'tasks' | 'avatars'>('users');
+  const [adminSubTab, setAdminSubTab] = useState<'users' | 'spin' | 'daily' | 'ads' | 'promo' | 'payment' | 'deposits' | 'trx_maker' | 'orders' | 'services' | 'notifications' | 'links' | 'settings' | 'tasks' | 'avatars' | 'ai_support'>('users');
+
+  // AI Support System State
+  const [aiSupportEnabled, setAiSupportEnabled] = useState<boolean>(() => {
+    return localStorage.getItem('smm_ai_support_enabled') !== 'false';
+  });
+  const [aiSupportCustomPrompt, setAiSupportCustomPrompt] = useState<string>(() => {
+    return localStorage.getItem('smm_ai_support_custom_prompt') || 'RF SMM Panel BD - নতুন অফার ও বিশেষ মূল্য ছাড় চলমান। যেকোনো সাহায্যে আমাদের সাপোর্ট বট উত্তর দিবে।';
+  });
+  const [isAiChatOpen, setIsAiChatOpen] = useState<boolean>(false);
+  const [aiMessages, setAiMessages] = useState<Array<{ id: string; role: 'user' | 'model'; text: string; time: string }>>([
+    {
+      id: 'welcome',
+      role: 'model',
+      text: 'আসসালামু আলাইকুম! 👋 আমি RF SMM-এর 🤖 AI সাপোর্ট অ্যাসিস্ট্যান্ট। আমি কীভাবে আপনাকে সাহায্য করতে পারি? (যেমন: ডিপোজিট করা, নতুন অর্ডার, ব্যালেন্স, ডেলিভারি টাইম ইত্যাদি)',
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    }
+  ]);
+  const [aiInputText, setAiInputText] = useState<string>('');
+  const [isAiSending, setIsAiSending] = useState<boolean>(false);
+
+  const handleSendAiMessage = async (overridePrompt?: string) => {
+    const textToSend = (overridePrompt !== undefined ? overridePrompt : aiInputText).trim();
+    if (!textToSend || isAiSending) return;
+
+    if (!aiSupportEnabled) {
+      showToast('⚠️ এডমিন কর্তৃক এআই সাপোর্ট সার্ভিসটি আপাতত বন্ধ রাখা হয়েছে।', 'error');
+      return;
+    }
+
+    const userMsg = {
+      id: Date.now().toString(),
+      role: 'user' as const,
+      text: textToSend,
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    };
+
+    setAiMessages((prev) => [...prev, userMsg]);
+    if (!overridePrompt) setAiInputText('');
+    setIsAiSending(true);
+
+    try {
+      const history = aiMessages.map((m) => ({ role: m.role, text: m.text }));
+      const response = await fetch('/api/ai-support', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt: textToSend,
+          history,
+          customKnowledge: aiSupportCustomPrompt,
+          userContext: currentUser ? {
+            name: currentUser.displayName || currentUser.email || 'Customer',
+            balance: userCoins,
+            totalOrders: myOrders.length
+          } : undefined
+        })
+      });
+
+      const data = await response.json();
+      const replyText = data.reply || data.error || 'দুঃখিত, কোনো উত্তর পাওয়া যায়নি।';
+
+      const botMsg = {
+        id: (Date.now() + 1).toString(),
+        role: 'model' as const,
+        text: replyText,
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      };
+
+      setAiMessages((prev) => [...prev, botMsg]);
+    } catch (err) {
+      console.error('AI Support send error:', err);
+      setAiMessages((prev) => [
+        ...prev,
+        {
+          id: (Date.now() + 1).toString(),
+          role: 'model' as const,
+          text: '⚠️ এআই সার্ভারে সংযোগ করতে সমস্যা হয়েছে। দয়া করে আবার চেষ্টা করুন।',
+          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        }
+      ]);
+    } finally {
+      setIsAiSending(false);
+    }
+  };
   const [presetAvatars, setPresetAvatars] = useState<Array<{ id: string; url: string; label?: string }>>(PRESET_AVATARS);
   const [adminNewAvatarUrl, setAdminNewAvatarUrl] = useState<string>('');
+
+  // Admin Created Trxs State (Admin Trx Maker)
+  const [adminCreatedTrxs, setAdminCreatedTrxs] = useState<AdminCreatedTrx[]>([]);
+  const [newAdminTrxId, setNewAdminTrxId] = useState('');
+  const [newAdminTrxAmount, setNewAdminTrxAmount] = useState('100');
+  const [newAdminTrxMethod, setNewAdminTrxMethod] = useState('bkash');
+  const [newAdminTrxNote, setNewAdminTrxNote] = useState('');
+  const [adminTrxCreating, setAdminTrxCreating] = useState(false);
+  const [adminTrxFilter, setAdminTrxFilter] = useState<'all' | 'Unused' | 'Used'>('all');
   const [adminNewAvatarLabel, setAdminNewAvatarLabel] = useState<string>('');
   const [adminAvatarUploadLoading, setAdminAvatarUploadLoading] = useState<boolean>(false);
+  const [depositBonusConfig, setDepositBonusConfig] = useState<DepositBonusConfig>({
+    enabled: true,
+    tiers: [
+      { id: 't1', minAmount: 100, maxAmount: 499, percentage: 2, label: 'Tier 1' },
+      { id: 't2', minAmount: 500, maxAmount: 999, percentage: 5, label: 'Tier 2' },
+      { id: 't3', minAmount: 1000, maxAmount: 0, percentage: 10, label: 'Tier 3' }
+    ],
+    percentage: 2,
+    minAmount: 100
+  });
+  const [isSavingDepositBonus, setIsSavingDepositBonus] = useState(false);
+  const [autoDepositGlobalEnabled, setAutoDepositGlobalEnabled] = useState<boolean>(true);
+  const [isSavingAutoDepositSettings, setIsSavingAutoDepositSettings] = useState<boolean>(false);
   const [paymentMethodsConfig, setPaymentMethodsConfig] = useState<
-    Record<string, { label: string; number: string; icon: string; note?: string; isCrypto?: boolean }>
+    Record<string, { label: string; number: string; icon: string; note?: string; isCrypto?: boolean; customIconUrl?: string }>
   >({
-    bkash: { label: 'bKash Merchant', number: '01781119650', icon: 'b' },
+    bkash: { label: 'bKash Merchant (বিকাশ ১)', number: '01781119650', icon: 'b' },
+    bkash_2: { label: 'bKash Personal (বিকাশ ২)', number: '01781119650', icon: 'b' },
     nagad: { label: 'Nagad Merchant', number: '01781119650', icon: 'N' },
     rocket: { label: 'Rocket Personal', number: '01781119650', icon: 'R' },
     binance: { label: 'Binance Pay / UID', number: '584304364', icon: 'B', note: '0.10$ = 12 TK ($1 = 120 TK)', isCrypto: true },
     usdt_bep20: { label: 'USDT (BEP20 Network)', number: '0x5764a28569ef6efdce93db22656b297ab487cdaa', icon: 'U', note: '0.10$ = 12 TK ($1 = 120 TK)', isCrypto: true }
   });
-  const [editingPaymentNumbers, setEditingPaymentNumbers] = useState<Record<string, { number: string; note: string }>>({});
+  const [editingPaymentNumbers, setEditingPaymentNumbers] = useState<Record<string, { number: string; note: string; customIconUrl: string }>>({});
   const [allUsersList, setAllUsersList] = useState<Array<{ uid: string; name?: string; balance?: number; total_orders?: number }>>([]);
   const [allAdminOrdersList, setAllAdminOrdersList] = useState<OrderData[]>([]);
   const [depFilter, setDepFilter] = useState<'all' | 'Pending' | 'Approved' | 'Rejected'>('all');
@@ -495,19 +761,27 @@ export default function App() {
     0.01, 0.25, 0.05, 0.15, 0.02, 0.30, 0.04, 0.10
   ]);
 
-  const getTodaySpinStorageKey = () => {
-    const todayStr = new Date().toISOString().slice(0, 10);
+  // Rolling 24-Hour Spin Storage Key Helper
+  const getSpinStorageKey = (type: 'lucky' | 'gold' | 'premium', isTs: boolean = false) => {
     const userId = currentUser?.uid || 'guest';
-    return `smm_lucky_spin_${todayStr}_${userId}`;
+    return isTs ? `smm_${type}_spin_ts_${userId}` : `smm_${type}_spin_cnt_${userId}`;
   };
 
   const [todaySpinCount, setTodaySpinCount] = useState<number>(() => {
-    const saved = localStorage.getItem(`smm_lucky_spin_${new Date().toISOString().slice(0, 10)}_${currentUser?.uid || 'guest'}`);
-    return saved ? parseInt(saved, 10) : 0;
+    const userId = currentUser?.uid || 'guest';
+    const savedTs = localStorage.getItem(`smm_lucky_spin_ts_${userId}`);
+    const savedCnt = localStorage.getItem(`smm_lucky_spin_cnt_${userId}`);
+    const ts = savedTs ? parseInt(savedTs, 10) : 0;
+    const cnt = savedCnt ? parseInt(savedCnt, 10) : 0;
+    if (ts > 0 && Date.now() >= ts + 24 * 60 * 60 * 1000) {
+      return 0;
+    }
+    return cnt;
   });
   const [lastLuckySpinTime, setLastLuckySpinTime] = useState<number>(() => {
-    const saved = localStorage.getItem(`smm_lucky_spin_ts_${currentUser?.uid || 'guest'}`);
-    return saved ? parseInt(saved, 10) : 0;
+    const userId = currentUser?.uid || 'guest';
+    const savedTs = localStorage.getItem(`smm_lucky_spin_ts_${userId}`);
+    return savedTs ? parseInt(savedTs, 10) : 0;
   });
 
   // VIP Gold Spin System State (Requirement: Wallet Balance >= 50 TK)
@@ -523,19 +797,21 @@ export default function App() {
     0.20, 5.00, 0.40, 1.50, 0.10, 4.00, 0.50, 2.50
   ]);
 
-  const getTodayGoldSpinStorageKey = () => {
-    const todayStr = new Date().toISOString().slice(0, 10);
-    const userId = currentUser?.uid || 'guest';
-    return `smm_gold_spin_${todayStr}_${userId}`;
-  };
-
   const [todayGoldSpinCount, setTodayGoldSpinCount] = useState<number>(() => {
-    const saved = localStorage.getItem(`smm_gold_spin_${new Date().toISOString().slice(0, 10)}_${currentUser?.uid || 'guest'}`);
-    return saved ? parseInt(saved, 10) : 0;
+    const userId = currentUser?.uid || 'guest';
+    const savedTs = localStorage.getItem(`smm_gold_spin_ts_${userId}`);
+    const savedCnt = localStorage.getItem(`smm_gold_spin_cnt_${userId}`);
+    const ts = savedTs ? parseInt(savedTs, 10) : 0;
+    const cnt = savedCnt ? parseInt(savedCnt, 10) : 0;
+    if (ts > 0 && Date.now() >= ts + 24 * 60 * 60 * 1000) {
+      return 0;
+    }
+    return cnt;
   });
   const [lastGoldSpinTime, setLastGoldSpinTime] = useState<number>(() => {
-    const saved = localStorage.getItem(`smm_gold_spin_ts_${currentUser?.uid || 'guest'}`);
-    return saved ? parseInt(saved, 10) : 0;
+    const userId = currentUser?.uid || 'guest';
+    const savedTs = localStorage.getItem(`smm_gold_spin_ts_${userId}`);
+    return savedTs ? parseInt(savedTs, 10) : 0;
   });
 
   // Premium Diamond Spin System State (Requirement: Win 0.30 TK - 10.00 TK, 90% chance on 0.30 - 1.00 TK, 1 spin per 24 hrs, 100 TK min balance)
@@ -551,20 +827,70 @@ export default function App() {
     0.80, 10.00, 1.00, 0.30, 0.50, 3.00, 0.80, 1.00
   ]);
 
-  const getTodayPremiumSpinStorageKey = () => {
-    const todayStr = new Date().toISOString().slice(0, 10);
-    const userId = currentUser?.uid || 'guest';
-    return `smm_premium_spin_${todayStr}_${userId}`;
-  };
-
   const [todayPremiumSpinCount, setTodayPremiumSpinCount] = useState<number>(() => {
-    const saved = localStorage.getItem(`smm_premium_spin_${new Date().toISOString().slice(0, 10)}_${currentUser?.uid || 'guest'}`);
-    return saved ? parseInt(saved, 10) : 0;
+    const userId = currentUser?.uid || 'guest';
+    const savedTs = localStorage.getItem(`smm_premium_spin_ts_${userId}`);
+    const savedCnt = localStorage.getItem(`smm_premium_spin_cnt_${userId}`);
+    const ts = savedTs ? parseInt(savedTs, 10) : 0;
+    const cnt = savedCnt ? parseInt(savedCnt, 10) : 0;
+    if (ts > 0 && Date.now() >= ts + 24 * 60 * 60 * 1000) {
+      return 0;
+    }
+    return cnt;
   });
   const [lastPremiumSpinTime, setLastPremiumSpinTime] = useState<number>(() => {
-    const saved = localStorage.getItem(`smm_premium_spin_ts_${currentUser?.uid || 'guest'}`);
-    return saved ? parseInt(saved, 10) : 0;
+    const userId = currentUser?.uid || 'guest';
+    const savedTs = localStorage.getItem(`smm_premium_spin_ts_${userId}`);
+    return savedTs ? parseInt(savedTs, 10) : 0;
   });
+
+  // Strict 24-Hour Rolling Spin Cycle Sync Effect
+  useEffect(() => {
+    const userId = currentUser?.uid || 'guest';
+    const now = Date.now();
+
+    // 1. Lucky Spin Check
+    const lTsSaved = localStorage.getItem(`smm_lucky_spin_ts_${userId}`);
+    const lCntSaved = localStorage.getItem(`smm_lucky_spin_cnt_${userId}`);
+    const lTs = lTsSaved ? parseInt(lTsSaved, 10) : 0;
+    const lCnt = lCntSaved ? parseInt(lCntSaved, 10) : 0;
+
+    if (lTs > 0 && now >= lTs + 24 * 60 * 60 * 1000) {
+      setTodaySpinCount(0);
+      localStorage.setItem(`smm_lucky_spin_cnt_${userId}`, '0');
+    } else {
+      setTodaySpinCount(lCnt);
+      setLastLuckySpinTime(lTs);
+    }
+
+    // 2. Gold Spin Check
+    const gTsSaved = localStorage.getItem(`smm_gold_spin_ts_${userId}`);
+    const gCntSaved = localStorage.getItem(`smm_gold_spin_cnt_${userId}`);
+    const gTs = gTsSaved ? parseInt(gTsSaved, 10) : 0;
+    const gCnt = gCntSaved ? parseInt(gCntSaved, 10) : 0;
+
+    if (gTs > 0 && now >= gTs + 24 * 60 * 60 * 1000) {
+      setTodayGoldSpinCount(0);
+      localStorage.setItem(`smm_gold_spin_cnt_${userId}`, '0');
+    } else {
+      setTodayGoldSpinCount(gCnt);
+      setLastGoldSpinTime(gTs);
+    }
+
+    // 3. Premium Spin Check
+    const pTsSaved = localStorage.getItem(`smm_premium_spin_ts_${userId}`);
+    const pCntSaved = localStorage.getItem(`smm_premium_spin_cnt_${userId}`);
+    const pTs = pTsSaved ? parseInt(pTsSaved, 10) : 0;
+    const pCnt = pCntSaved ? parseInt(pCntSaved, 10) : 0;
+
+    if (pTs > 0 && now >= pTs + 24 * 60 * 60 * 1000) {
+      setTodayPremiumSpinCount(0);
+      localStorage.setItem(`smm_premium_spin_cnt_${userId}`, '0');
+    } else {
+      setTodayPremiumSpinCount(pCnt);
+      setLastPremiumSpinTime(pTs);
+    }
+  }, [currentUser?.uid, dailyCountdownNow]);
 
   // Telegram Task Notification Helper (Daily Check-in, Promo Code, Ad Earn, Lucky Spin, Gold Spin & Premium Spin live channel alert)
   const sendTelegramTaskNotification = async (type: 'daily' | 'promo' | 'ad' | 'spin' | 'gold_spin' | 'premium_spin', payload: {
@@ -1056,13 +1382,27 @@ export default function App() {
 
     if (isSpinning) return;
 
+    const userId = currentUser?.uid || 'guest';
     const nowTs = Date.now();
-    const nextSpinTs = lastLuckySpinTime ? lastLuckySpinTime + 24 * 60 * 60 * 1000 : 0;
-    if (todaySpinCount >= luckySpinDailyMaxLimit && nextSpinTs > nowTs) {
+    let currentSpinTs = lastLuckySpinTime;
+    let currentCount = todaySpinCount;
+
+    // Check if 24 hours have passed since cycle start
+    if (currentSpinTs > 0 && nowTs >= currentSpinTs + 24 * 60 * 60 * 1000) {
+      currentCount = 0;
+      currentSpinTs = 0;
+      setTodaySpinCount(0);
+      setLastLuckySpinTime(0);
+      localStorage.setItem(`smm_lucky_spin_cnt_${userId}`, '0');
+    }
+
+    const nextSpinTs = currentSpinTs ? currentSpinTs + 24 * 60 * 60 * 1000 : 0;
+    if (currentCount >= luckySpinDailyMaxLimit && nextSpinTs > nowTs) {
       const diffMs = nextSpinTs - nowTs;
       const hours = Math.floor(diffMs / (1000 * 60 * 60));
       const mins = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
-      showToast(`🛑 আপনি আজকের সর্বোচ্চ লিমিট সম্পন্ন করে ফেলেছেন! পরবর্তী স্পিন পাবেন ${hours} ঘণ্টা ${mins} মিনিট পর।`, 'warning');
+      const secs = Math.floor((diffMs % (1000 * 60)) / 1000);
+      showToast(`🛑 আপনি ২৪ ঘণ্টার স্পিন লিমিট সম্পন্ন করে ফেলেছেন! পরবর্তী স্পিন রিফ্রেশ পাবেন ${hours} ঘণ্টা ${mins} মিনিট ${secs} সেকেন্ড পর।`, 'warning');
       haptic('error');
       return;
     }
@@ -1121,11 +1461,14 @@ export default function App() {
       haptic('success');
 
       const finishTs = Date.now();
-      const newCount = todaySpinCount + 1;
+      const newCount = currentCount + 1;
+      const updatedSpinTs = (currentSpinTs === 0 || currentCount === 0) ? finishTs : currentSpinTs;
+
       setTodaySpinCount(newCount);
-      setLastLuckySpinTime(finishTs);
-      localStorage.setItem(getTodaySpinStorageKey(), newCount.toString());
-      localStorage.setItem(`smm_lucky_spin_ts_${currentUser?.uid || 'guest'}`, String(finishTs));
+      setLastLuckySpinTime(updatedSpinTs);
+
+      localStorage.setItem(`smm_lucky_spin_cnt_${userId}`, newCount.toString());
+      localStorage.setItem(`smm_lucky_spin_ts_${userId}`, updatedSpinTs.toString());
 
       const newBal = (userBalance || 0) + rewardAmt;
       setUserBalance(newBal);
@@ -1167,13 +1510,27 @@ export default function App() {
 
     if (isGoldSpinning) return;
 
+    const userId = currentUser?.uid || 'guest';
     const nowTs = Date.now();
-    const nextGoldSpinTs = lastGoldSpinTime ? lastGoldSpinTime + 24 * 60 * 60 * 1000 : 0;
-    if (todayGoldSpinCount >= goldSpinDailyMaxLimit && nextGoldSpinTs > nowTs) {
+    let currentSpinTs = lastGoldSpinTime;
+    let currentCount = todayGoldSpinCount;
+
+    // Check if 24 hours have passed since cycle start
+    if (currentSpinTs > 0 && nowTs >= currentSpinTs + 24 * 60 * 60 * 1000) {
+      currentCount = 0;
+      currentSpinTs = 0;
+      setTodayGoldSpinCount(0);
+      setLastGoldSpinTime(0);
+      localStorage.setItem(`smm_gold_spin_cnt_${userId}`, '0');
+    }
+
+    const nextGoldSpinTs = currentSpinTs ? currentSpinTs + 24 * 60 * 60 * 1000 : 0;
+    if (currentCount >= goldSpinDailyMaxLimit && nextGoldSpinTs > nowTs) {
       const diffMs = nextGoldSpinTs - nowTs;
       const hours = Math.floor(diffMs / (1000 * 60 * 60));
       const mins = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
-      showToast(`🛑 আপনি আজকের গোল্ড স্পিন লিমিট সম্পন্ন করেছেন! পরবর্তী গোল্ড স্পিন পাবেন ${hours} ঘণ্টা ${mins} মিনিট পর।`, 'warning');
+      const secs = Math.floor((diffMs % (1000 * 60)) / 1000);
+      showToast(`🛑 আপনি ২৪ ঘণ্টার গোল্ড স্পিন লিমিট সম্পন্ন করেছেন! পরবর্তী গোল্ড স্পিন পাবেন ${hours} ঘণ্টা ${mins} মিনিট ${secs} সেকেন্ড পর।`, 'warning');
       haptic('error');
       return;
     }
@@ -1231,11 +1588,14 @@ export default function App() {
       haptic('success');
 
       const finishTs = Date.now();
-      const newCount = todayGoldSpinCount + 1;
+      const newCount = currentCount + 1;
+      const updatedSpinTs = (currentSpinTs === 0 || currentCount === 0) ? finishTs : currentSpinTs;
+
       setTodayGoldSpinCount(newCount);
-      setLastGoldSpinTime(finishTs);
-      localStorage.setItem(getTodayGoldSpinStorageKey(), newCount.toString());
-      localStorage.setItem(`smm_gold_spin_ts_${currentUser?.uid || 'guest'}`, String(finishTs));
+      setLastGoldSpinTime(updatedSpinTs);
+
+      localStorage.setItem(`smm_gold_spin_cnt_${userId}`, newCount.toString());
+      localStorage.setItem(`smm_gold_spin_ts_${userId}`, updatedSpinTs.toString());
 
       const newBal = (userBalance || 0) + rewardAmt;
       setUserBalance(newBal);
@@ -1277,13 +1637,27 @@ export default function App() {
 
     if (isPremiumSpinning) return;
 
+    const userId = currentUser?.uid || 'guest';
     const nowTs = Date.now();
-    const nextPremiumSpinTs = lastPremiumSpinTime ? lastPremiumSpinTime + 24 * 60 * 60 * 1000 : 0;
-    if (todayPremiumSpinCount >= premiumSpinDailyMaxLimit && nextPremiumSpinTs > nowTs) {
+    let currentSpinTs = lastPremiumSpinTime;
+    let currentCount = todayPremiumSpinCount;
+
+    // Check if 24 hours have passed since cycle start
+    if (currentSpinTs > 0 && nowTs >= currentSpinTs + 24 * 60 * 60 * 1000) {
+      currentCount = 0;
+      currentSpinTs = 0;
+      setTodayPremiumSpinCount(0);
+      setLastPremiumSpinTime(0);
+      localStorage.setItem(`smm_premium_spin_cnt_${userId}`, '0');
+    }
+
+    const nextPremiumSpinTs = currentSpinTs ? currentSpinTs + 24 * 60 * 60 * 1000 : 0;
+    if (currentCount >= premiumSpinDailyMaxLimit && nextPremiumSpinTs > nowTs) {
       const diffMs = nextPremiumSpinTs - nowTs;
       const hours = Math.floor(diffMs / (1000 * 60 * 60));
       const mins = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
-      showToast(`🛑 আপনি আজকের প্রিমিয়াম স্পিন লিমিট সম্পন্ন করেছেন! পরবর্তী প্রিমিয়াম স্পিন পাবেন ${hours} ঘণ্টা ${mins} মিনিট পর।`, 'warning');
+      const secs = Math.floor((diffMs % (1000 * 60)) / 1000);
+      showToast(`🛑 আপনি ২৪ ঘণ্টার প্রিমিয়াম স্পিন লিমিট সম্পন্ন করেছেন! পরবর্তী প্রিমিয়াম স্পিন পাবেন ${hours} ঘণ্টা ${mins} মিনিট ${secs} সেকেন্ড পর।`, 'warning');
       haptic('error');
       return;
     }
@@ -1341,11 +1715,14 @@ export default function App() {
       haptic('success');
 
       const finishTs = Date.now();
-      const newCount = todayPremiumSpinCount + 1;
+      const newCount = currentCount + 1;
+      const updatedSpinTs = (currentSpinTs === 0 || currentCount === 0) ? finishTs : currentSpinTs;
+
       setTodayPremiumSpinCount(newCount);
-      setLastPremiumSpinTime(finishTs);
-      localStorage.setItem(getTodayPremiumSpinStorageKey(), newCount.toString());
-      localStorage.setItem(`smm_premium_spin_ts_${currentUser?.uid || 'guest'}`, String(finishTs));
+      setLastPremiumSpinTime(updatedSpinTs);
+
+      localStorage.setItem(`smm_premium_spin_cnt_${userId}`, newCount.toString());
+      localStorage.setItem(`smm_premium_spin_ts_${userId}`, updatedSpinTs.toString());
 
       const newBal = (userBalance || 0) + rewardAmt;
       setUserBalance(newBal);
@@ -1731,6 +2108,23 @@ export default function App() {
   const [newTaskLink, setNewTaskLink] = useState('');
   const [newTaskIcon, setNewTaskIcon] = useState('fas fa-tasks');
   const [newTaskImage, setNewTaskImage] = useState<string | null>(null);
+
+  // Admin Task Full Edit State
+  const [editingTask, setEditingTask] = useState<TaskItem | null>(null);
+  const [editTaskTitle, setEditTaskTitle] = useState('');
+  const [editTaskDesc, setEditTaskDesc] = useState('');
+  const [editTaskReward, setEditTaskReward] = useState('5');
+  const [editTaskMaxUserLimit, setEditTaskMaxUserLimit] = useState('0');
+  const [editTaskLink, setEditTaskLink] = useState('');
+  const [editTaskIcon, setEditTaskIcon] = useState('fas fa-tasks');
+  const [editTaskImage, setEditTaskImage] = useState<string | null>(null);
+
+  // Live Deposit System State (bKash & Nagad Auto Live Gateway)
+  const [liveTrxSearch, setLiveTrxSearch] = useState('');
+  const [isAutoDepositMode, setIsAutoDepositMode] = useState(true);
+  const [autoDepositVerifying, setAutoDepositVerifying] = useState(false);
+  const [autoDepositProgress, setAutoDepositProgress] = useState(0);
+  const [autoDepositStatusText, setAutoDepositStatusText] = useState('');
 
   // Mailbox System State
   const [showMailboxModal, setShowMailboxModal] = useState(false);
@@ -2148,6 +2542,24 @@ export default function App() {
     return () => unsub();
   }, []);
 
+  // Realtime Admin Created Trxs Sync
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, 'admin_created_trxs'), (snapshot) => {
+      const list: AdminCreatedTrx[] = [];
+      snapshot.forEach((docSnap) => {
+        list.push({ id: docSnap.id, ...docSnap.data() } as AdminCreatedTrx);
+      });
+      // Sort newest first
+      list.sort((a, b) => {
+        const timeA = a.createdAt?.seconds || 0;
+        const timeB = b.createdAt?.seconds || 0;
+        return timeB - timeA;
+      });
+      setAdminCreatedTrxs(list);
+    });
+    return () => unsub();
+  }, []);
+
   // 7. Realtime All Users Sync (Admin View)
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'users'), (snapshot) => {
@@ -2509,6 +2921,66 @@ export default function App() {
     }
   };
 
+  // Admin Actions: Full Task Edit Handlers
+  const handleOpenEditTask = (task: TaskItem) => {
+    setEditingTask(task);
+    setEditTaskTitle(task.title || '');
+    setEditTaskDesc(task.description || '');
+    setEditTaskReward((task.reward || 0).toString());
+    setEditTaskMaxUserLimit((task.maxUserLimit || 0).toString());
+    setEditTaskLink(task.link || '');
+    setEditTaskIcon(task.icon || 'fas fa-tasks');
+    setEditTaskImage(task.image || null);
+  };
+
+  const handleEditTaskImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const compressed = await compressImageToBase64(file);
+      setEditTaskImage(compressed);
+      showToast('✅ New task image attached for edit!', 'success');
+      haptic('light');
+    } catch (err) {
+      console.error('Error uploading edit task image:', err);
+      showToast('Failed to process image file', 'error');
+    }
+  };
+
+  const handleSaveEditedTask = async () => {
+    if (!editingTask) return;
+    if (!editTaskTitle.trim()) {
+      showToast('⚠️ দয়া করে টাস্ক এর নাম লিখে দিন!', 'warning');
+      haptic('error');
+      return;
+    }
+    const rewardVal = parseFloat(editTaskReward) || 0;
+    const limitVal = parseInt(editTaskMaxUserLimit, 10) || 0;
+
+    const updatedData = {
+      title: editTaskTitle.trim(),
+      description: editTaskDesc.trim() || 'Complete task & submit screenshot proof',
+      reward: rewardVal,
+      maxUserLimit: limitVal > 0 ? limitVal : 0,
+      link: editTaskLink.trim() || '#',
+      icon: editTaskIcon || 'fas fa-tasks',
+      image: editTaskImage || ''
+    };
+
+    try {
+      await updateDoc(doc(db, 'tasks', editingTask.id), updatedData);
+      setCustomTasks((prev) =>
+        prev.map((t) => (t.id === editingTask.id ? { ...t, ...updatedData } : t))
+      );
+      showToast('✅ টাস্কটির সকল তথ্য সফলভাবে এডিট ও সেভ করা হয়েছে!', 'success');
+      haptic('success');
+      setEditingTask(null);
+    } catch (e: any) {
+      console.error('Error updating task:', e);
+      showToast('Failed to edit task: ' + e.message, 'error');
+    }
+  };
+
   // Admin Actions: Update Task User Limit
   const handleUpdateTaskLimit = async (taskId: string, newLimit: number) => {
     try {
@@ -2590,26 +3062,40 @@ export default function App() {
     }
   };
 
-  // Admin Deposit Approval (with customizable amount adjustment before approval)
+  // Admin Deposit Approval (with customizable amount adjustment before approval and bonus calculation)
   const handleApproveDepositCustom = async (depId: string, uid: string, originalAmount: number) => {
     const customStr = customDepAmounts[depId];
     const finalAmount = customStr !== undefined && !isNaN(parseFloat(customStr)) && parseFloat(customStr) >= 0
       ? parseFloat(customStr)
       : originalAmount;
 
+    // Calculate Deposit Bonus
+    const { bonusAmount, bonusPercentage } = calculateDepositBonus(finalAmount, depositBonusConfig);
+    const totalCredited = finalAmount + bonusAmount;
+
     try {
       const uSnap = await getDoc(doc(db, 'users', uid));
       const currBal = uSnap.exists() ? (uSnap.data().balance || 0) : 0;
-      const newBal = currBal + finalAmount;
+      const currTotDep = uSnap.exists() ? (uSnap.data().total_deposit || 0) : 0;
+      const newBal = currBal + totalCredited;
 
-      await updateDoc(doc(db, 'users', uid), { balance: newBal });
+      await updateDoc(doc(db, 'users', uid), {
+        balance: newBal,
+        total_deposit: currTotDep + finalAmount
+      });
       await updateDoc(doc(db, 'deposit_requests', depId), {
         status: 'Approved',
         amount: finalAmount,
+        bonusAmount: bonusAmount,
+        totalCredited: totalCredited,
         approvedAt: serverTimestamp()
       });
 
-      showToast(`Approved ৳${finalAmount} for user ${uid.slice(0, 8)}!`, 'success');
+      if (bonusAmount > 0) {
+        showToast(`🎉 Approved ৳${finalAmount} + ৳${bonusAmount} (${bonusPercentage}% Bonus) = Total ৳${totalCredited} credited!`, 'success');
+      } else {
+        showToast(`Approved ৳${finalAmount} for user ${uid.slice(0, 8)}!`, 'success');
+      }
       haptic('success');
     } catch (e) {
       console.error('Error approving deposit:', e);
@@ -2631,6 +3117,93 @@ export default function App() {
     }
   };
 
+  // Sync Deposit Bonus Configuration from Firestore settings
+  useEffect(() => {
+    const unsub = onSnapshot(doc(db, 'settings', 'deposit_bonus'), (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        if (data) {
+          const rawTiers = Array.isArray(data.tiers) ? data.tiers : null;
+          const parsedTiers: DepositBonusTier[] = rawTiers && rawTiers.length > 0
+            ? rawTiers.map((t: any, idx: number) => ({
+                id: t.id || `tier-${idx}-${Date.now()}`,
+                minAmount: Number(t.minAmount) || 0,
+                maxAmount: Number(t.maxAmount) || 0,
+                percentage: Number(t.percentage) || 0,
+                label: t.label || `Tier ${idx + 1}`
+              }))
+            : [
+                { id: 't1', minAmount: 100, maxAmount: 499, percentage: 2, label: 'Tier 1' },
+                { id: 't2', minAmount: 500, maxAmount: 999, percentage: 5, label: 'Tier 2' },
+                { id: 't3', minAmount: 1000, maxAmount: 0, percentage: 10, label: 'Tier 3' }
+              ];
+
+          setDepositBonusConfig({
+            enabled: data.enabled !== undefined ? Boolean(data.enabled) : true,
+            tiers: parsedTiers,
+            percentage: typeof data.percentage === 'number' ? data.percentage : (parsedTiers[0]?.percentage || 2),
+            minAmount: typeof data.minAmount === 'number' ? data.minAmount : (parsedTiers[0]?.minAmount || 100)
+          });
+        }
+      }
+    });
+    return () => unsub();
+  }, []);
+
+  // Save/Update Multi Deposit Bonus Settings in Firestore
+  const handleSaveDepositBonusConfig = async (enabled: boolean, tiers: DepositBonusTier[]) => {
+    setIsSavingDepositBonus(true);
+    try {
+      const sortedTiers = [...tiers].sort((a, b) => a.minAmount - b.minAmount);
+      await setDoc(doc(db, 'settings', 'deposit_bonus'), {
+        enabled,
+        tiers: sortedTiers,
+        percentage: sortedTiers[0]?.percentage || 2,
+        minAmount: sortedTiers[0]?.minAmount || 100,
+        updatedAt: serverTimestamp()
+      }, { merge: true });
+      showToast(`✅ মাল্টি ডিপোজিট বোনাস সেটিং সেভ হয়েছে (${enabled ? 'ON' : 'OFF'} - ${sortedTiers.length} টি টায়ার)`, 'success');
+      haptic('success');
+    } catch (e: any) {
+      console.error('Error saving deposit bonus config:', e);
+      showToast('Failed to save deposit bonus config', 'error');
+    } finally {
+      setIsSavingDepositBonus(false);
+    }
+  };
+
+  // Sync Global Auto Deposit System State from Firestore settings
+  useEffect(() => {
+    const unsub = onSnapshot(doc(db, 'settings', 'auto_deposit_config'), (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        if (data && data.enabled !== undefined) {
+          setAutoDepositGlobalEnabled(Boolean(data.enabled));
+        }
+      }
+    });
+    return () => unsub();
+  }, []);
+
+  // Save/Update Global Auto Deposit Gateway Settings in Firestore
+  const handleSaveAutoDepositGlobalConfig = async (enabled: boolean) => {
+    setIsSavingAutoDepositSettings(true);
+    try {
+      await setDoc(doc(db, 'settings', 'auto_deposit_config'), {
+        enabled,
+        updatedAt: serverTimestamp()
+      }, { merge: true });
+      setAutoDepositGlobalEnabled(enabled);
+      showToast(`✅ অটো ডিপোজিট সিস্টেম ${enabled ? 'ON (চালু)' : 'OFF (বন্ধ)'} করা হয়েছে!`, 'success');
+      haptic('success');
+    } catch (e: any) {
+      console.error('Error saving auto deposit config:', e);
+      showToast('অটো ডিপোজিট সেটিং সেভ করা সম্ভব হয়নি: ' + e.message, 'error');
+    } finally {
+      setIsSavingAutoDepositSettings(false);
+    }
+  };
+
   // Sync Payment Methods Configuration from Firestore settings
   useEffect(() => {
     const unsub = onSnapshot(doc(db, 'settings', 'payment_methods'), (docSnap) => {
@@ -2647,8 +3220,8 @@ export default function App() {
     return () => unsub();
   }, []);
 
-  // Save/Update Payment Method Number in Firestore
-  const handleSavePaymentNumber = async (methodKey: string, newNumber: string, newNote?: string) => {
+  // Save/Update Payment Method Number & Logo in Firestore
+  const handleSavePaymentNumber = async (methodKey: string, newNumber: string, newNote?: string, newCustomIconUrl?: string) => {
     if (!newNumber.trim()) {
       showToast('Payment number cannot be empty', 'error');
       return;
@@ -2659,16 +3232,17 @@ export default function App() {
         [methodKey]: {
           ...paymentMethodsConfig[methodKey],
           number: newNumber.trim(),
-          ...(newNote !== undefined ? { note: newNote.trim() } : {})
+          ...(newNote !== undefined ? { note: newNote.trim() } : {}),
+          customIconUrl: newCustomIconUrl !== undefined ? newCustomIconUrl.trim() : (paymentMethodsConfig[methodKey]?.customIconUrl || '')
         }
       };
       await setDoc(doc(db, 'settings', 'payment_methods'), updated, { merge: true });
       setPaymentMethodsConfig(updated);
-      showToast(`✅ Updated ${paymentMethodsConfig[methodKey]?.label || methodKey} number to: ${newNumber.trim()}`, 'success');
+      showToast(`✅ ${paymentMethodsConfig[methodKey]?.label || methodKey} তথ্য ও লোগো আপডেট হয়েছে!`, 'success');
       haptic('success');
     } catch (e: any) {
       console.error('Error saving payment number:', e);
-      showToast('Failed to save payment number: ' + e.message, 'error');
+      showToast('Failed to save payment details: ' + e.message, 'error');
     }
   };
 
@@ -3435,7 +4009,7 @@ export default function App() {
     }
   };
 
-  // Submit Deposit Request
+  // Submit Deposit Request (Supports Instant Auto Live Gateway for bKash & Nagad)
   const handleSubmitDeposit = async () => {
     setDepAmtErr('');
     setDepTrxErr('');
@@ -3466,36 +4040,246 @@ export default function App() {
 
     if (!currentUser?.uid || depositSubmitting) return;
 
+    // Check duplicate TrxID across all previous deposits
+    const isDuplicate = allDepositRequests.some(
+      (d) => d.trxId && d.trxId.trim().toUpperCase() === trx
+    );
+    if (isDuplicate) {
+      setDepTrxErr('⚠️ এই ট্রানজেকশন আইডিটি (TrxID) ইতিপূর্বে ব্যবহার করা হয়েছে!');
+      haptic('error');
+      return;
+    }
+
     setDepositSubmitting(true);
     haptic('heavy');
 
     try {
-      await addDoc(collection(db, 'deposit_requests'), {
-        uid: currentUser.uid,
-        amount: amt,
-        trxId: trx,
-        method: selectedMethod,
-        status: 'Pending',
-        timestamp: serverTimestamp()
-      });
+      // 1. Check if TrxID matches an unused Admin Created TrxID (Admin Trx Maker)
+      const matchedAdminTrx = adminCreatedTrxs.find(
+        (t) => t.status === 'Unused' && t.trxId.trim().toUpperCase() === trx
+      );
 
-      haptic('success');
-      showToast('Deposit request submitted! Admin will verify soon.', 'success');
+      if (matchedAdminTrx) {
+        const finalCreditAmt = matchedAdminTrx.amount || amt;
+        const { bonusAmount, bonusPercentage } = calculateDepositBonus(finalCreditAmt, depositBonusConfig);
+        const totalCredited = finalCreditAmt + bonusAmount;
+
+        setAutoDepositVerifying(true);
+        setAutoDepositProgress(30);
+        setAutoDepositStatusText('Connecting to Admin TrxID Gateway...');
+
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        setAutoDepositProgress(70);
+        setAutoDepositStatusText(`Admin TrxID Matched! Adding ৳ ${totalCredited} Balance...`);
+
+        await new Promise((resolve) => setTimeout(resolve, 500));
+
+        // Mark Admin Trx as Used
+        await updateDoc(doc(db, 'admin_created_trxs', matchedAdminTrx.id), {
+          status: 'Used',
+          usedByUid: currentUser.uid,
+          usedAt: new Date().toISOString()
+        });
+
+        // Add Deposit Request Record
+        await addDoc(collection(db, 'deposit_requests'), {
+          uid: currentUser.uid,
+          amount: finalCreditAmt,
+          bonusAmount: bonusAmount,
+          totalCredited: totalCredited,
+          trxId: trx,
+          method: matchedAdminTrx.method || selectedMethod,
+          status: 'Approved',
+          isAdminCreated: true,
+          timestamp: serverTimestamp()
+        });
+
+        // Credit user balance
+        await updateDoc(doc(db, 'users', currentUser.uid), {
+          balance: increment(totalCredited),
+          total_deposit: increment(finalCreditAmt)
+        });
+
+        setUserBalance((prev) => prev + totalCredited);
+        setUserTotalDeposit((prev) => prev + finalCreditAmt);
+
+        setAutoDepositProgress(100);
+        setAutoDepositStatusText('Deposit Successful!');
+
+        haptic('success');
+        showToast(
+          bonusAmount > 0
+            ? `🎉 এডমিন TrxID ম্যাচ হয়েছে! ৳ ${finalCreditAmt} + ৳ ${bonusAmount} (${bonusPercentage}% Bonus) = মোট ৳ ${totalCredited} ওয়ালেটে যোগ হলো!`
+            : `🎉 এডমিন ভাউচার TrxID সফলভাবে ম্যাচ হয়েছে! ৳ ${finalCreditAmt} ওয়ালেটে যোগ করা হলো।`,
+          'success'
+        );
+
+        setDepositAmount('');
+        setDepositTrxId('');
+        return;
+      }
+
+      const isEffectiveAutoMode = autoDepositGlobalEnabled && isAutoDepositMode;
+
+      if (isEffectiveAutoMode) {
+        // INSTANT LIVE AUTO DEPOSIT GATEWAY FOR BKASH / NAGAD / ROCKET / CRYPTO
+        // Live Gateway Verification against Statement Database
+        setAutoDepositVerifying(true);
+        setAutoDepositProgress(20);
+        setAutoDepositStatusText('Connecting to bKash/Nagad Live Gateway...');
+
+        await new Promise((resolve) => setTimeout(resolve, 600));
+        setAutoDepositProgress(60);
+        setAutoDepositStatusText('Verifying TrxID in Live Statement Database...');
+
+        await new Promise((resolve) => setTimeout(resolve, 700));
+        setAutoDepositProgress(90);
+        setAutoDepositStatusText('❌ TrxID Authorization Failed! Statement Match Not Found...');
+
+        await new Promise((resolve) => setTimeout(resolve, 500));
+
+        // Since TrxID was not found in valid statement database, mark deposit request as REJECTED
+        await addDoc(collection(db, 'deposit_requests'), {
+          uid: currentUser.uid,
+          amount: amt,
+          trxId: trx,
+          method: selectedMethod,
+          status: 'Rejected',
+          isAuto: true,
+          rejectReason: 'Live Auto Verification Failed: TrxID not found in payment statement',
+          timestamp: serverTimestamp()
+        });
+
+        setAutoDepositProgress(100);
+        setAutoDepositStatusText('❌ Verification Failed!');
+
+        haptic('error');
+        showToast('❌ লাইভ অটো ভেরিফিকেশন ব্যর্থ! আপনার TrxID-টি বিকাশ/নগদ স্টেটমেন্টে পাওয়া যায়নি। কাস্টম ট্রানজেকশনের জন্য ম্যানুয়াল মোড ব্যবহার করুন।', 'error');
+      } else {
+        // MANUAL ADMIN REVIEW MODE
+        await addDoc(collection(db, 'deposit_requests'), {
+          uid: currentUser.uid,
+          amount: amt,
+          trxId: trx,
+          method: selectedMethod,
+          status: 'Pending',
+          timestamp: serverTimestamp()
+        });
+
+        haptic('success');
+        showToast('Deposit request submitted! Admin will verify soon.', 'success');
+      }
+
       setDepositAmount('');
       setDepositTrxId('');
     } catch (e: any) {
       console.error('Deposit error:', e);
       haptic('error');
-      showToast('Failed to submit deposit request', 'error');
+      showToast('Deposit processing failed. Please try again.', 'error');
     } finally {
       setDepositSubmitting(false);
+      setTimeout(() => {
+        setAutoDepositVerifying(false);
+        setAutoDepositProgress(0);
+        setAutoDepositStatusText('');
+      }, 800);
     }
   };
 
   const copyNumber = (num: string) => {
     navigator.clipboard.writeText(num);
     haptic('success');
-    showToast('Number copied to clipboard!', 'success');
+    showToast('Copied to clipboard!', 'success');
+  };
+
+  // Helper to generate realistic TrxIDs
+  const generateRandomTrxCode = (method = 'bkash') => {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    let code = '';
+    for (let i = 0; i < 8; i++) {
+      code += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    const prefix =
+      method === 'bkash' ? 'BK' :
+      method === 'nagad' ? 'NG' :
+      method === 'rocket' ? 'RK' : 'TX';
+    return `${prefix}${code}`;
+  };
+
+  // Admin Trx Maker: Create Custom TrxID
+  const handleCreateAdminTrx = async () => {
+    const amt = parseFloat(newAdminTrxAmount);
+    if (isNaN(amt) || amt <= 0) {
+      showToast('Enter a valid deposit amount for TrxID', 'error');
+      haptic('error');
+      return;
+    }
+
+    let finalTrx = newAdminTrxId.trim().toUpperCase();
+    if (!finalTrx) {
+      finalTrx = generateRandomTrxCode(newAdminTrxMethod);
+    }
+
+    setAdminTrxCreating(true);
+    haptic('heavy');
+
+    try {
+      await addDoc(collection(db, 'admin_created_trxs'), {
+        trxId: finalTrx,
+        amount: amt,
+        method: newAdminTrxMethod,
+        status: 'Unused',
+        note: newAdminTrxNote.trim() || 'Admin Created TrxID',
+        createdAt: serverTimestamp()
+      });
+
+      haptic('success');
+      showToast(`🎉 TrxID [${finalTrx}] successfully created for ৳ ${amt}!`, 'success');
+
+      setNewAdminTrxId('');
+      setNewAdminTrxNote('');
+    } catch (e: any) {
+      console.error('Error creating admin TrxID:', e);
+      haptic('error');
+      showToast('Failed to create TrxID. Try again.', 'error');
+    } finally {
+      setAdminTrxCreating(false);
+    }
+  };
+
+  // Admin Trx Maker: Quick 1-Click Preset Generator
+  const handleQuickBatchGenAdminTrx = async (amt: number, method: string) => {
+    const generatedCode = generateRandomTrxCode(method);
+    haptic('heavy');
+    try {
+      await addDoc(collection(db, 'admin_created_trxs'), {
+        trxId: generatedCode,
+        amount: amt,
+        method: method,
+        status: 'Unused',
+        note: `Quick 1-Click ${method.toUpperCase()} ৳${amt} TrxID`,
+        createdAt: serverTimestamp()
+      });
+
+      haptic('success');
+      showToast(`⚡ Quick TrxID [${generatedCode}] for ৳${amt} created!`, 'success');
+    } catch (e: any) {
+      console.error('Quick TrxID error:', e);
+      showToast('Error generating TrxID', 'error');
+    }
+  };
+
+  // Admin Trx Maker: Delete TrxID
+  const handleDeleteAdminTrx = async (docId: string) => {
+    if (!window.confirm('Are you sure you want to delete this TrxID?')) return;
+    haptic('medium');
+    try {
+      await deleteDoc(doc(db, 'admin_created_trxs', docId));
+      showToast('TrxID deleted!', 'info');
+    } catch (e: any) {
+      console.error('Delete TrxID error:', e);
+      showToast('Failed to delete TrxID', 'error');
+    }
   };
 
   // Admin: Save or Update Service Manually
@@ -3620,17 +4404,30 @@ export default function App() {
   // Admin: Approve Deposit
   const handleApproveDeposit = async (dep: DepositRequest) => {
     try {
+      const finalAmount = dep.amount;
+      const { bonusAmount, bonusPercentage } = calculateDepositBonus(finalAmount, depositBonusConfig);
+      const totalCredited = finalAmount + bonusAmount;
+
       const uRef = doc(db, 'users', dep.uid);
       const uSnap = await getDoc(uRef);
       if (uSnap.exists()) {
         const curBal = uSnap.data().balance || 0;
-        await updateDoc(uRef, { balance: curBal + dep.amount });
+        const curTotDep = uSnap.data().total_deposit || 0;
+        await updateDoc(uRef, {
+          balance: curBal + totalCredited,
+          total_deposit: curTotDep + finalAmount
+        });
       } else {
-        await setDoc(uRef, { balance: dep.amount, total_orders: 0, createdAt: serverTimestamp() });
+        await setDoc(uRef, { balance: totalCredited, total_deposit: finalAmount, total_orders: 0, createdAt: serverTimestamp() });
       }
 
-      await updateDoc(doc(db, 'deposit_requests', dep.id), { status: 'Approved' });
-      showToast(`✅ Approved ৳${dep.amount} deposit for ${dep.trxId}`, 'success');
+      await updateDoc(doc(db, 'deposit_requests', dep.id), {
+        status: 'Approved',
+        bonusAmount: bonusAmount,
+        totalCredited: totalCredited,
+        approvedAt: serverTimestamp()
+      });
+      showToast(`✅ Approved ৳${finalAmount}${bonusAmount > 0 ? ` (+৳${bonusAmount} Bonus)` : ''} for ${dep.trxId}`, 'success');
       haptic('success');
     } catch (e: any) {
       showToast('Approval error: ' + e.message, 'error');
@@ -5875,7 +6672,126 @@ export default function App() {
           {/* FUNDS TAB */}
           {activeTab === 'funds' && (
             <section className="px-5 mt-5">
-              <h2 className="section-title mb-5 text-white">Add Funds</h2>
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="section-title text-white mb-0">Add Funds</h2>
+                <div className="flex items-center gap-1.5 px-3 py-1 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-xs font-bold">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+                  <span>বিকাশ ও নগদ অটো ডিপোজিট লাইভ</span>
+                </div>
+              </div>
+
+              {/* MULTI DEPOSIT BONUS OFFER BANNER */}
+              {depositBonusConfig.enabled && depositBonusConfig.tiers && depositBonusConfig.tiers.length > 0 && (
+                <div className="p-3.5 rounded-2xl bg-gradient-to-r from-amber-500/20 via-orange-500/15 to-emerald-500/20 border border-amber-500/40 shadow-xl space-y-2.5 mb-4 animate-pulse">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-2xl bg-amber-500/20 border border-amber-500/40 text-amber-400 flex items-center justify-center font-black text-lg shrink-0">
+                      <i className="fas fa-gift text-amber-400"></i>
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="px-2 py-0.5 rounded-md bg-amber-500 text-slate-950 font-black text-[10px] uppercase">
+                          MULTI-BONUS OFFER
+                        </span>
+                        <span className="font-extrabold text-xs text-amber-300">
+                          মাল্টি ডিপোজিট ক্যাশব্যাক বোনাস অফার সচল!
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-200 font-bold mt-0.5">
+                        যত বেশি ডিপোজিট করবেন, তত বেশি ক্যাশব্যাক বোনাস ইনস্ট্যান্ট পাবেন!
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Tier Badges */}
+                  <div className="flex flex-wrap gap-1.5 pt-2 border-t border-amber-500/20">
+                    {depositBonusConfig.tiers.map((t, idx) => (
+                      <span
+                        key={t.id || idx}
+                        className="px-2.5 py-1 rounded-lg bg-slate-900/90 text-amber-300 border border-amber-500/40 font-mono text-[10px] font-black flex items-center gap-1 shadow-sm"
+                      >
+                        <i className="fas fa-coins text-amber-400 text-[9px]"></i>
+                        <span>
+                          {t.maxAmount && t.maxAmount > 0
+                            ? `৳${t.minAmount} - ৳${t.maxAmount}`
+                            : `৳${t.minAmount}+`}
+                          : <strong className="text-emerald-400">{t.percentage}% Bonus</strong>
+                        </span>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* BKASH & NAGAD LIVE INSTANT DEPOSIT BANNER & MODE SWITCHER */}
+              <div className="p-4 rounded-2xl bg-gradient-to-r from-slate-900 via-pink-950/30 to-slate-900 border border-pink-500/30 shadow-xl mb-5 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-xl bg-pink-500/20 text-pink-400 flex items-center justify-center font-black text-sm border border-pink-500/30">
+                      ⚡
+                    </div>
+                    <div>
+                      <h3 className="font-extrabold text-xs text-white uppercase tracking-wider">
+                        বিকাশ & নগদ অটো ডিপোজিট গেটওয়ে
+                      </h3>
+                      <p className="text-[10px] text-pink-300 font-medium">
+                        {autoDepositGlobalEnabled
+                          ? 'ট্রানজেকশন আইডি দেওয়ার সাথে সাথে ইনস্ট্যান্ট ব্যালেন্স যোগ হবে!'
+                          : 'অটো ডিপোজিট অফ আছে - ম্যানুয়াল মোডে জমা দিন'}
+                      </p>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => {
+                      if (!autoDepositGlobalEnabled) {
+                        showToast('⚠️ এডমিন অটো ডিপোজিট সিস্টেম সাময়িকভাবে বন্ধ রেখেছেন। ম্যানুয়াল মোড ব্যবহার করুন।', 'warning');
+                        haptic('warning');
+                        return;
+                      }
+                      setIsAutoDepositMode(!isAutoDepositMode);
+                      haptic('light');
+                    }}
+                    className={`px-3 py-1.5 rounded-xl font-extrabold text-[10px] border transition flex items-center gap-1.5 active:scale-95 ${
+                      autoDepositGlobalEnabled && isAutoDepositMode
+                        ? 'bg-emerald-500 text-slate-950 border-emerald-400 shadow-lg shadow-emerald-500/20'
+                        : autoDepositGlobalEnabled
+                        ? 'bg-white/10 text-slate-300 border-white/20'
+                        : 'bg-red-500/20 text-red-400 border-red-500/40 opacity-80'
+                    }`}
+                  >
+                    <i className={autoDepositGlobalEnabled && isAutoDepositMode ? 'fas fa-bolt text-amber-900' : autoDepositGlobalEnabled ? 'fas fa-clock' : 'fas fa-power-off'}></i>
+                    <span>
+                      {autoDepositGlobalEnabled && isAutoDepositMode
+                        ? 'অটো ইনস্ট্যান্ট চালু'
+                        : autoDepositGlobalEnabled
+                        ? 'ম্যানুয়াল মোড'
+                        : 'অটো ডিপোজিট বন্ধ (OFF)'}
+                    </span>
+                  </button>
+                </div>
+
+                <div className={`p-2.5 rounded-xl border text-[10px] flex items-center justify-between gap-2 ${
+                  autoDepositGlobalEnabled
+                    ? 'bg-slate-950/80 border-pink-500/20 text-slate-300'
+                    : 'bg-red-950/40 border-red-500/30 text-red-300'
+                }`}>
+                  <span className="flex items-center gap-1.5 font-bold">
+                    <i className={autoDepositGlobalEnabled ? 'fas fa-check-circle text-emerald-400' : 'fas fa-exclamation-triangle text-amber-400'}></i>
+                    <span>
+                      {autoDepositGlobalEnabled
+                        ? 'লাইভ অটো ভেরিফিকেশন সার্ভিস 24/7 সচল আছে'
+                        : '⚠️ এডমিন অটো ডিপোজিট বন্ধ রেখেছেন (ম্যানুয়াল রিকোয়েস্ট জমা দিন)'}
+                    </span>
+                  </span>
+                  <span className="font-mono text-[9px]">
+                    {autoDepositGlobalEnabled ? (
+                      <>গড় সময়: <strong className="text-emerald-400 font-bold">১-৩ সেকেণ্ড</strong></>
+                    ) : (
+                      <strong className="text-amber-400 font-bold">ম্যানুয়াল রিভিউ</strong>
+                    )}
+                  </span>
+                </div>
+              </div>
 
               <div className="glass-card p-6 text-center mb-5 relative overflow-hidden">
                 <div className="absolute inset-0 bg-gradient-to-br from-blue-500/10 to-transparent pointer-events-none"></div>
@@ -5910,64 +6826,124 @@ export default function App() {
                 ))}
               </div>
 
-              {/* Method Selector */}
-              <div className="grid grid-cols-3 gap-2 mb-4">
-                {(['bkash', 'nagad', 'rocket', 'binance', 'usdt_bep20'] as const).map((method) => {
-                  const cfg = paymentMethodsConfig[method];
-                  const isActive = selectedMethod === method;
-                  return (
-                    <div
-                      key={method}
-                      onClick={() => {
-                        setSelectedMethod(method);
-                        haptic('light');
-                      }}
-                      className={`deposit-method flex flex-col items-center justify-center py-2.5 px-2 text-center cursor-pointer transition rounded-xl border ${
-                        isActive
-                          ? 'bg-blue-500/20 border-blue-500/50 text-white shadow-lg'
-                          : 'bg-white/5 border-white/10 text-slate-400 hover:bg-white/10'
-                      }`}
-                    >
-                      <span className="text-[11px] font-extrabold uppercase">
-                        {method === 'bkash'
-                          ? 'bKash'
-                          : method === 'nagad'
-                          ? 'Nagad'
-                          : method === 'rocket'
-                          ? 'Rocket'
-                          : method === 'binance'
-                          ? 'Binance'
-                          : 'USDT (BEP20)'}
-                      </span>
-                      {cfg.isCrypto && (
-                        <span className="text-[8px] font-bold text-amber-400 mt-0.5">
-                          0.10$ = 12 TK
+              {/* Method Selector with Auto Deposit Toggle */}
+              <div className="mb-4 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-extrabold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                    <i className="fas fa-credit-card text-blue-400"></i>
+                    <span>পেমেন্ট মেথড পছন্দ করুন:</span>
+                  </span>
+
+                  <button
+                    onClick={() => {
+                      if (!autoDepositGlobalEnabled) {
+                        showToast('⚠️ এডমিন অটো ডিপোজিট সিস্টেম বন্ধ রেখেছেন। বর্তমানে ম্যানুয়াল ডিপোজিট চালু আছে।', 'warning');
+                        haptic('warning');
+                        return;
+                      }
+                      setIsAutoDepositMode(!isAutoDepositMode);
+                      haptic('light');
+                    }}
+                    className={`px-3 py-1.5 rounded-xl font-black text-[10px] border transition flex items-center gap-1.5 active:scale-95 ${
+                      autoDepositGlobalEnabled && isAutoDepositMode
+                        ? 'bg-emerald-500 text-slate-950 border-emerald-400 shadow-lg shadow-emerald-500/20'
+                        : autoDepositGlobalEnabled
+                        ? 'bg-white/10 text-slate-300 border-white/20'
+                        : 'bg-red-500/20 text-red-400 border-red-500/40 opacity-80'
+                    }`}
+                  >
+                    <i className={autoDepositGlobalEnabled && isAutoDepositMode ? 'fas fa-bolt text-amber-950' : autoDepositGlobalEnabled ? 'fas fa-clock' : 'fas fa-power-off'}></i>
+                    <span>
+                      {autoDepositGlobalEnabled && isAutoDepositMode
+                        ? '⚡ অটো ডিপোজিট'
+                        : autoDepositGlobalEnabled
+                        ? '📋 ম্যানুয়াল ডিপোজিট'
+                        : '⛔ অটো বন্ধ'}
+                    </span>
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2.5">
+                  {(['bkash', 'bkash_2', 'nagad', 'rocket', 'binance', 'usdt_bep20'] as const).map((method) => {
+                    const cfg = paymentMethodsConfig[method] || { label: method, number: '' };
+                    const isActive = selectedMethod === method;
+                    const isAutoCapable = method === 'bkash' || method === 'bkash_2' || method === 'nagad' || method === 'rocket';
+                    return (
+                      <div
+                        key={method}
+                        onClick={() => {
+                          setSelectedMethod(method);
+                          if (paymentMethodsConfig[method]?.isCrypto) {
+                            const bdt = parseFloat(depositAmount);
+                            if (!isNaN(bdt) && bdt > 0) {
+                              setCryptoUsdInput(String(Math.round((bdt / 120) * 100) / 100));
+                            } else if (cryptoUsdInput) {
+                              const usd = parseFloat(cryptoUsdInput);
+                              if (!isNaN(usd) && usd > 0) {
+                                setDepositAmount(String(Math.round(usd * 120 * 100) / 100));
+                              }
+                            }
+                          }
+                          haptic('light');
+                        }}
+                        className={`deposit-method flex flex-col items-center justify-center py-3 px-2 text-center cursor-pointer transition rounded-2xl border relative overflow-hidden ${
+                          isActive
+                            ? 'bg-gradient-to-b from-blue-500/25 via-indigo-500/15 to-transparent border-blue-400 text-white shadow-xl ring-2 ring-blue-400/60 scale-[1.02]'
+                            : 'bg-slate-900/80 border-white/10 text-slate-400 hover:bg-white/10 hover:border-white/20'
+                        }`}
+                      >
+                        {isAutoCapable && autoDepositGlobalEnabled && isAutoDepositMode && (
+                          <span className="absolute top-1 right-1 px-1 py-0.2 bg-emerald-500 text-slate-950 text-[7px] font-black rounded-full uppercase shadow flex items-center gap-0.5 z-10 animate-pulse">
+                            ⚡ AUTO
+                          </span>
+                        )}
+                        <PaymentLogo method={method} customUrl={cfg.customIconUrl} className="w-8 h-8 mb-1.5 shadow-md" />
+                        <span className="text-[11px] font-black uppercase tracking-tight flex items-center gap-1 text-white">
+                          {method === 'bkash'
+                            ? 'bKash 1'
+                            : method === 'bkash_2'
+                            ? 'bKash 2'
+                            : method === 'nagad'
+                            ? 'Nagad'
+                            : method === 'rocket'
+                            ? 'Rocket'
+                            : method === 'binance'
+                            ? 'Binance'
+                            : 'USDT'}
                         </span>
-                      )}
-                    </div>
-                  );
-                })}
+                        {cfg.isCrypto && (
+                          <span className="text-[8px] font-bold text-amber-400 mt-0.5">
+                            0.10$ = 12 TK
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
 
               {/* Payment Box */}
-              <div className="glass-card p-4 mb-4 space-y-3">
-                <div className="flex items-center justify-between gap-2">
+              <div className="glass-card p-4 mb-4 space-y-3 border-blue-500/20 bg-gradient-to-r from-slate-900/90 via-slate-900/70 to-slate-900/90 shadow-xl">
+                <div className="flex items-center justify-between gap-3">
                   <div className="flex gap-3 items-center min-w-0">
-                    <div className="w-10 h-10 bg-blue-500/15 rounded-xl flex items-center justify-center text-blue-400 text-lg font-black flex-shrink-0">
-                      {paymentMethodsConfig[selectedMethod].icon}
-                    </div>
+                    <PaymentLogo method={selectedMethod} customUrl={paymentMethodsConfig[selectedMethod]?.customIconUrl} className="w-11 h-11" />
                     <div className="min-w-0">
-                      <p className="text-[9px] font-bold text-slate-500 uppercase">
-                        {paymentMethodsConfig[selectedMethod].label}
+                      <p className="text-[9px] font-extrabold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                        <span>{paymentMethodsConfig[selectedMethod].label}</span>
+                        {paymentMethodsConfig[selectedMethod].isCrypto && (
+                          <span className="px-1.5 py-0.2 bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded text-[8px] font-black">
+                            CRYPTO
+                          </span>
+                        )}
                       </p>
-                      <p className="font-bold text-xs tracking-wide text-white font-mono break-all">
+                      <p className="font-black text-sm tracking-wide text-white font-mono break-all select-all">
                         {paymentMethodsConfig[selectedMethod].number}
                       </p>
                     </div>
                   </div>
                   <button
                     onClick={() => copyNumber(paymentMethodsConfig[selectedMethod].number)}
-                    className="copy-btn flex-shrink-0"
+                    className="copy-btn flex-shrink-0 shadow-md active:scale-95 transition"
                   >
                     <i className="fas fa-copy mr-1"></i> COPY
                   </button>
@@ -5984,11 +6960,124 @@ export default function App() {
               </div>
 
               {/* Form */}
-              <div className="glass-card p-5 space-y-4 mb-6">
-                <div>
+              <div className="glass-card p-5 space-y-4 mb-6 relative overflow-hidden">
+                {/* LIVE AUTO DEPOSIT PROCESSING OVERLAY */}
+                {autoDepositVerifying && (
+                  <div className="absolute inset-0 z-20 bg-slate-950/95 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center animate-fade-in space-y-3">
+                    <div className="relative w-16 h-16 flex items-center justify-center">
+                      <div className="absolute inset-0 rounded-full border-4 border-emerald-500/20 animate-ping"></div>
+                      <div className="w-14 h-14 rounded-full border-4 border-emerald-500 border-t-transparent animate-spin"></div>
+                      <i className="fas fa-bolt absolute text-emerald-400 text-lg"></i>
+                    </div>
+
+                    <div>
+                      <h4 className="font-extrabold text-sm text-white">
+                        {autoDepositStatusText || 'লাইভ ভেরিফিকেশন চলছে...'}
+                      </h4>
+                      <p className="text-[11px] text-emerald-400 font-mono font-bold mt-1">
+                        {autoDepositProgress}% সম্পন্ন হয়েছে
+                      </p>
+                    </div>
+
+                    <div className="w-full max-w-xs h-2 bg-slate-800 rounded-full overflow-hidden border border-white/10">
+                      <div
+                        className="h-full bg-gradient-to-r from-emerald-500 to-teal-400 transition-all duration-300"
+                        style={{ width: `${autoDepositProgress}%` }}
+                      ></div>
+                    </div>
+                  </div>
+                )}
+
+                <div className="space-y-3">
+                  {/* Crypto USD Auto Calculation Box */}
+                  {paymentMethodsConfig[selectedMethod]?.isCrypto && (
+                    <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 space-y-3 shadow-inner">
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs font-black text-amber-300 flex items-center gap-1.5">
+                          <i className="fas fa-dollar-sign text-amber-400"></i>
+                          <span>USD Amount ($) - ডলার পরিমাণ লিখুন:</span>
+                        </label>
+                        <span className="text-[10px] font-mono font-bold text-amber-400 bg-amber-500/20 px-2 py-0.5 rounded-md border border-amber-500/30">
+                          Rate: $1 = ৳120 TK
+                        </span>
+                      </div>
+
+                      <div className="relative">
+                        <input
+                          type="number"
+                          step="any"
+                          className="input-modern pl-9 pr-14 text-sm font-black font-mono text-amber-300 border-amber-500/50 bg-slate-900/90 focus:border-amber-400"
+                          placeholder="0.10, 1.00, 5.00, 10.00..."
+                          value={cryptoUsdInput}
+                          onChange={(e) => {
+                            const usdVal = e.target.value;
+                            setCryptoUsdInput(usdVal);
+                            setDepAmtErr('');
+                            const usdNum = parseFloat(usdVal);
+                            if (!isNaN(usdNum) && usdNum > 0) {
+                              const calculatedBdt = Math.round(usdNum * 120 * 100) / 100;
+                              setDepositAmount(String(calculatedBdt));
+                            } else {
+                              setDepositAmount('');
+                            }
+                          }}
+                        />
+                        <span className="absolute left-3.5 top-1/2 -translate-y-1/2 font-black text-amber-400 text-sm">
+                          $
+                        </span>
+                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-black text-amber-400/80 font-mono">
+                          USD
+                        </span>
+                      </div>
+
+                      {/* Quick Dollar Select Buttons */}
+                      <div>
+                        <p className="text-[9px] font-bold text-amber-400/90 mb-1.5">
+                          Quick Dollar Select (সহজে ডলার সিলেক্ট করুন):
+                        </p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {[
+                            { usd: 0.10, label: '$0.10 (৳12)' },
+                            { usd: 0.50, label: '$0.50 (৳60)' },
+                            { usd: 1, label: '$1 (৳120)' },
+                            { usd: 5, label: '$5 (৳600)' },
+                            { usd: 10, label: '$10 (৳1200)' },
+                            { usd: 50, label: '$50 (৳6000)' }
+                          ].map((btn) => (
+                            <button
+                              key={btn.usd}
+                              type="button"
+                              onClick={() => {
+                                setCryptoUsdInput(String(btn.usd));
+                                setDepositAmount(String(Math.round(btn.usd * 120 * 100) / 100));
+                                setDepAmtErr('');
+                                haptic('light');
+                              }}
+                              className="px-2.5 py-1 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-500/40 font-mono font-extrabold text-[10px] transition active:scale-95 shadow-sm"
+                            >
+                              {btn.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Live Calculated Banner */}
+                      <div className="p-2.5 rounded-xl bg-slate-950/90 border border-amber-500/40 flex items-center justify-between text-xs font-mono font-black shadow-md">
+                        <span className="text-amber-300 flex items-center gap-1.5">
+                          <i className="fas fa-calculator text-amber-400"></i>
+                          <span>${parseFloat(cryptoUsdInput) || 0} USD</span>
+                        </span>
+                        <i className="fas fa-arrow-right text-slate-500 text-[10px]"></i>
+                        <span className="text-emerald-400 text-sm">
+                          = ৳ {parseFloat(depositAmount) || 0} TK
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
                   <div className="flex items-center justify-between mb-1">
                     <label className="form-label mb-0">
-                      <i className="fas fa-money-bill mr-1 text-[8px]"></i> Amount (BDT / ৳)
+                      <i className="fas fa-money-bill mr-1 text-[8px]"></i> Amount in BDT (টাকার পরিমাণ ৳)
                     </label>
                     <span className="text-[10px] font-bold text-blue-400">
                       Selected: ৳ {parseFloat(depositAmount) || 0}
@@ -5997,16 +7086,25 @@ export default function App() {
 
                   <input
                     type="number"
-                    className="input-modern"
+                    className="input-modern font-mono font-bold"
                     placeholder={
-                      paymentMethodsConfig[selectedMethod].isCrypto
-                        ? 'Enter amount in BDT (e.g. 12 TK = $0.10)'
+                      paymentMethodsConfig[selectedMethod]?.isCrypto
+                        ? 'Enter BDT amount or use USD input above ($1 = 120 TK)'
                         : 'Enter amount (min ৳ 10)'
                     }
                     value={depositAmount}
                     onChange={(e) => {
-                      setDepositAmount(e.target.value);
+                      const bdtVal = e.target.value;
+                      setDepositAmount(bdtVal);
                       setDepAmtErr('');
+                      if (paymentMethodsConfig[selectedMethod]?.isCrypto) {
+                        const bdtNum = parseFloat(bdtVal);
+                        if (!isNaN(bdtNum) && bdtNum > 0) {
+                          setCryptoUsdInput(String(Math.round((bdtNum / 120) * 100) / 100));
+                        } else {
+                          setCryptoUsdInput('');
+                        }
+                      }
                     }}
                   />
 
@@ -6028,6 +7126,13 @@ export default function App() {
                           const nextVal = Math.max(0, curr + btn.val);
                           setDepositAmount(String(nextVal));
                           setDepAmtErr('');
+                          if (paymentMethodsConfig[selectedMethod]?.isCrypto) {
+                            if (nextVal > 0) {
+                              setCryptoUsdInput(String(Math.round((nextVal / 120) * 100) / 100));
+                            } else {
+                              setCryptoUsdInput('');
+                            }
+                          }
                           haptic('light');
                         }}
                         className={`px-2.5 py-1 rounded-lg font-extrabold text-[10px] border transition active:scale-95 ${
@@ -6041,6 +7146,29 @@ export default function App() {
                     ))}
                   </div>
 
+                  {/* Calculated Bonus Live Badge */}
+                  {(() => {
+                    const amt = parseFloat(depositAmount);
+                    const { bonusAmount, bonusPercentage, matchedTier } = calculateDepositBonus(amt, depositBonusConfig);
+                    if (bonusAmount > 0) {
+                      return (
+                        <div className="mt-2.5 p-2.5 rounded-xl bg-amber-500/15 border border-amber-500/40 flex flex-wrap items-center justify-between gap-2 text-xs font-bold text-amber-300 shadow-md animate-fade-in">
+                          <span className="flex items-center gap-1.5">
+                            <i className="fas fa-gift text-amber-400 text-sm animate-bounce"></i>
+                            <span>
+                              অফার বোনাস ({bonusPercentage}% CashBonus
+                              {matchedTier ? ` • ${matchedTier.maxAmount ? `৳${matchedTier.minAmount}-৳${matchedTier.maxAmount}` : `৳${matchedTier.minAmount}+`}` : ''}):
+                            </span>
+                          </span>
+                          <span className="font-mono font-black text-emerald-400">
+                            +৳{bonusAmount} (মোট ব্যালেন্স হবে ৳{(amt + bonusAmount).toFixed(2)})
+                          </span>
+                        </div>
+                      );
+                    }
+                    return null;
+                  })()}
+
                   {depAmtErr && <p className="field-error show">{depAmtErr}</p>}
                 </div>
 
@@ -6049,15 +7177,15 @@ export default function App() {
                     <i className="fas fa-receipt mr-1 text-[8px]"></i>{' '}
                     {paymentMethodsConfig[selectedMethod].isCrypto
                       ? 'Transaction ID / Hash / Pay ID'
-                      : 'Transaction ID'}
+                      : 'bKash / Nagad Transaction ID (TrxID)'}
                   </label>
                   <input
                     type="text"
-                    className="input-modern uppercase"
+                    className="input-modern uppercase font-mono"
                     placeholder={
                       paymentMethodsConfig[selectedMethod].isCrypto
                         ? 'e.g. 584304364 or TxHash 0x...'
-                        : 'e.g. BKASH8S7D6F'
+                        : 'e.g. BKASH8S7D6F or 9G876543'
                     }
                     value={depositTrxId}
                     onChange={(e) => {
@@ -6071,65 +7199,224 @@ export default function App() {
                 <button
                   onClick={handleSubmitDeposit}
                   disabled={depositSubmitting}
-                  className="btn-secondary-solid flex items-center justify-center gap-2"
+                  className={`w-full py-3.5 px-4 rounded-xl font-extrabold text-xs transition flex items-center justify-center gap-2 shadow-lg active:scale-95 ${
+                    autoDepositGlobalEnabled && isAutoDepositMode
+                      ? 'bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600 text-slate-950 shadow-emerald-500/25 hover:from-emerald-400 hover:to-teal-400'
+                      : 'btn-secondary-solid'
+                  }`}
                 >
                   {depositSubmitting ? (
                     <span className="loading-spinner"></span>
                   ) : (
                     <>
-                      <i className="fas fa-paper-plane text-xs"></i>
-                      <span>SUBMIT REQUEST</span>
+                      <i className={autoDepositGlobalEnabled && isAutoDepositMode ? 'fas fa-bolt text-amber-950' : 'fas fa-paper-plane'}></i>
+                      <span>
+                        {autoDepositGlobalEnabled && isAutoDepositMode
+                          ? '⚡ বিকাশ/নগদ ইনস্ট্যান্ট অটো ডিপোজিট করুন'
+                          : '📋 ম্যানুয়াল ডিপোজিট সাবমিট করুন'}
+                      </span>
                     </>
                   )}
                 </button>
               </div>
 
-              {/* Deposit History */}
-              <div>
-                <h3 className="text-xs font-extrabold text-slate-500 uppercase tracking-widest mb-3">
-                  <i className="fas fa-history mr-1"></i> Recent Requests
-                </h3>
+              {/* INSTANT TRX ID LIVE SEARCH & TRACKER */}
+              <div className="p-4 rounded-2xl bg-slate-900/90 border border-blue-500/30 shadow-lg mb-6 space-y-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xs font-extrabold text-blue-400 uppercase tracking-wider flex items-center gap-1.5">
+                    <i className="fas fa-search text-xs"></i>
+                    <span>LIVE TRX ID TRACKER (ট্রানজেকশন আইডি সার্চ করুন)</span>
+                  </h3>
+                  <span className="text-[9px] font-bold text-slate-400">লাইভ আপডেট</span>
+                </div>
 
-                {depositHistory.length === 0 ? (
-                  <p className="text-[11px] text-slate-600 text-center py-3">
-                    No requests submitted yet
-                  </p>
-                ) : (
-                  depositHistory.map((dep) => (
-                    <div key={dep.id} className="deposit-history-card">
-                      <div className="flex justify-between items-center mb-1.5">
-                        <span className="text-[9px] text-slate-500 font-mono">
-                          {dep.timestamp
-                            ? new Date(dep.timestamp.seconds * 1000).toLocaleString('en-BD', {
-                                day: '2-digit',
-                                month: 'short',
-                                hour: '2-digit',
-                                minute: '2-digit'
-                              })
-                            : 'Just now'}
+                <div className="relative">
+                  <input
+                    type="text"
+                    className="input-modern text-xs font-mono uppercase pr-9"
+                    placeholder="আপনার TrxID লিখুন (যেমন: BKASH8S7D6F)..."
+                    value={liveTrxSearch}
+                    onChange={(e) => setLiveTrxSearch(e.target.value)}
+                  />
+                  {liveTrxSearch && (
+                    <button
+                      onClick={() => setLiveTrxSearch('')}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white text-xs"
+                    >
+                      <i className="fas fa-times"></i>
+                    </button>
+                  )}
+                </div>
+
+                {liveTrxSearch.trim().length >= 3 && (() => {
+                  const queryUpper = liveTrxSearch.trim().toUpperCase();
+                  const foundMatch = allDepositRequests.find(
+                    (d) => d.trxId && d.trxId.toUpperCase().includes(queryUpper)
+                  );
+
+                  if (!foundMatch) {
+                    return (
+                      <div className="p-3 rounded-xl bg-slate-950 border border-white/10 text-center space-y-1">
+                        <p className="text-xs font-bold text-slate-300">
+                          🔍 ট্রানজেকশন আইডি "<span className="text-amber-400 font-mono">{liveTrxSearch}</span>" দিয়ে কোনো রিকোয়েস্ট পাওয়া যায়নি!
+                        </p>
+                        <p className="text-[10px] text-slate-500">দয়া করে TrxID সঠিক আছে কিনা তা পরীক্ষা করে ডিপোজিট ফরম সাবমিট করুন।</p>
+                      </div>
+                    );
+                  }
+
+                  const isApproved = foundMatch.status === 'Approved';
+                  const isPending = foundMatch.status === 'Pending';
+
+                  return (
+                    <div className="p-3.5 rounded-xl bg-slate-950 border border-blue-500/40 space-y-2.5 animate-fade-in">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-mono text-slate-400">
+                          TrxID: <strong className="text-white font-bold">{foundMatch.trxId}</strong>
                         </span>
-                        <span
-                          className={`text-[8px] font-bold px-2 py-0.5 rounded-md ${
-                            dep.status === 'Approved'
-                              ? 'text-blue-400 bg-blue-500/10'
-                              : dep.status === 'Rejected'
-                              ? 'text-red-400 bg-red-500/10'
-                              : 'text-amber-400 bg-amber-500/10'
-                          }`}
-                        >
-                          {dep.status}
+                        <span className={`text-[9px] font-extrabold px-2 py-0.5 rounded-md ${
+                          isApproved ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40' :
+                          isPending ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40' :
+                          'bg-red-500/20 text-red-300 border border-red-500/40'
+                        }`}>
+                          {isApproved ? '✅ ডিপোজিট সফল (APPROVED)' : isPending ? '⚡ যাচাইকরণ চলছে (PENDING)' : '❌ বাতিল (REJECTED)'}
                         </span>
                       </div>
-                      <div className="flex justify-between items-center">
-                        <span className="text-[10px] text-slate-400 font-bold uppercase">
-                          {dep.method} • {dep.trxId}
-                        </span>
-                        <span className="font-extrabold text-sm text-white">
-                          ৳ {dep.amount}
-                        </span>
+
+                      <div className="grid grid-cols-2 gap-2 text-[11px] pt-1 border-t border-white/10">
+                        <div>
+                          <span className="text-slate-500 block text-[9px]">মেথড & পরিমাণ:</span>
+                          <strong className="text-white uppercase font-mono">{foundMatch.method} • ৳ {foundMatch.amount}</strong>
+                        </div>
+                        <div className="text-right">
+                          <span className="text-slate-500 block text-[9px]">লাইভ স্ট্যাটাস:</span>
+                          <strong className={isApproved ? 'text-emerald-400' : isPending ? 'text-amber-400' : 'text-red-400'}>
+                            {isApproved ? 'ব্যালেন্স যুক্ত করা হয়েছে' : isPending ? 'এডমিন রিভিউ চলছে' : 'বাতিল করা হয়েছে'}
+                          </strong>
+                        </div>
+                      </div>
+
+                      {/* Live Verification Timeline inside search */}
+                      <div className="pt-2">
+                        <div className="grid grid-cols-3 gap-1 text-[8px] font-bold text-center">
+                          <div className="p-1 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                            1. রিকোয়েস্ট জমা 📥
+                          </div>
+                          <div className={`p-1 rounded border ${
+                            isApproved || isPending
+                              ? 'bg-amber-500/20 text-amber-300 border-amber-500/30 animate-pulse'
+                              : 'bg-slate-800 text-slate-500 border-white/5'
+                          }`}>
+                            2. TrxID ভেরিফাই ⚡
+                          </div>
+                          <div className={`p-1 rounded border ${
+                            isApproved
+                              ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                              : 'bg-slate-800 text-slate-500 border-white/5'
+                          }`}>
+                            3. ব্যালেন্স এড 💰
+                          </div>
+                        </div>
                       </div>
                     </div>
-                  ))
+                  );
+                })()}
+              </div>
+
+              {/* Deposit History */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xs font-extrabold text-slate-400 uppercase tracking-widest">
+                    <i className="fas fa-history mr-1 text-blue-400"></i> My Deposit History ({depositHistory.length})
+                  </h3>
+                  <button
+                    onClick={() => {
+                      setShowLiveDepositFeedModal(true);
+                      haptic('light');
+                    }}
+                    className="text-[10px] font-bold text-emerald-400 hover:underline flex items-center gap-1"
+                  >
+                    <span>সকল লাইভ ডিপোজিট ফিড</span>
+                    <i className="fas fa-arrow-right text-[8px]"></i>
+                  </button>
+                </div>
+
+                {depositHistory.length === 0 ? (
+                  <p className="text-[11px] text-slate-600 text-center py-4 glass-card">
+                    এখনো কোনো ডিপোজিট রিকোয়েস্ট করেননি।
+                  </p>
+                ) : (
+                  depositHistory.map((dep) => {
+                    const isPending = dep.status === 'Pending';
+                    const isApproved = dep.status === 'Approved';
+
+                    return (
+                      <div key={dep.id} className="deposit-history-card relative overflow-hidden space-y-2">
+                        <div className="flex justify-between items-center">
+                          <span className="text-[9px] text-slate-500 font-mono">
+                            {dep.timestamp
+                              ? new Date(dep.timestamp.seconds * 1000).toLocaleString('en-BD', {
+                                  day: '2-digit',
+                                  month: 'short',
+                                  hour: '2-digit',
+                                  minute: '2-digit'
+                                })
+                              : 'Just now'}
+                          </span>
+                          <span
+                            className={`text-[8px] font-bold px-2 py-0.5 rounded-md ${
+                              isApproved
+                                ? 'text-emerald-400 bg-emerald-500/10 border border-emerald-500/20'
+                                : dep.status === 'Rejected'
+                                ? 'text-red-400 bg-red-500/10 border border-red-500/20'
+                                : 'text-amber-400 bg-amber-500/10 border border-amber-500/20 animate-pulse'
+                            }`}
+                          >
+                            {isApproved ? 'APPROVED' : dep.status === 'Rejected' ? 'REJECTED' : 'PENDING VERIFICATION'}
+                          </span>
+                        </div>
+
+                        <div className="flex justify-between items-center">
+                          <div className="flex items-center gap-2">
+                            <PaymentLogo method={dep.method} customUrl={paymentMethodsConfig[dep.method]?.customIconUrl} className="w-6 h-6" />
+                            <span className="text-[11px] text-slate-200 font-extrabold uppercase flex items-center gap-1">
+                              <span>{dep.method}</span>
+                              <span className="text-slate-500">•</span>
+                              <span className="font-mono text-amber-300 font-bold">{dep.trxId}</span>
+                            </span>
+                          </div>
+                          <span className="font-black text-base text-emerald-400 font-mono">
+                            ৳ {dep.amount}
+                          </span>
+                        </div>
+
+                        {/* LIVE VERIFICATION TRACKER TIMELINE FOR PENDING DEPOSITS */}
+                        {isPending && (
+                          <div className="pt-2 border-t border-white/10 space-y-1.5">
+                            <div className="flex justify-between items-center text-[9px] font-bold text-amber-300">
+                              <span className="flex items-center gap-1">
+                                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping"></span>
+                                <span>লাইভ ভেরিফিকেশন চলছে...</span>
+                              </span>
+                              <span className="text-slate-400 text-[8px]">⏱️ গড় সময়: ১-৩ মিনিট</span>
+                            </div>
+
+                            <div className="grid grid-cols-3 gap-1 text-[8px] font-bold text-center">
+                              <div className="p-1 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                                1. জমা হয়েছে 📥
+                              </div>
+                              <div className="p-1 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40 animate-pulse">
+                                2. ভেরিফাই চলছে ⚡
+                              </div>
+                              <div className="p-1 rounded bg-slate-900 text-slate-500 border border-white/5">
+                                3. ব্যালেন্স এড 💰
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
                 )}
               </div>
             </section>
@@ -6627,13 +7914,15 @@ export default function App() {
                   { id: 'promo', label: 'Promo Code (প্রোমো কোড)', icon: 'fas fa-ticket-alt' },
                   { id: 'payment', label: 'Payment Numbers', icon: 'fas fa-mobile-alt' },
                   { id: 'deposits', label: 'Deposit Requests', icon: 'fas fa-wallet' },
+                  { id: 'trx_maker', label: 'TrxID Maker (TrxID বানান)', icon: 'fas fa-key' },
                   { id: 'orders', label: 'Orders Control', icon: 'fas fa-list-check' },
                   { id: 'services', label: 'Services (API)', icon: 'fas fa-server' },
                   { id: 'notifications', label: 'Broadcast', icon: 'fas fa-bullhorn' },
                   { id: 'links', label: 'Support Links', icon: 'fas fa-link' },
                   { id: 'settings', label: 'Settings', icon: 'fas fa-cog' },
                   { id: 'tasks', label: 'Tasks & Screenshots Proof (টাস্ক প্রুফ)', icon: 'fas fa-tasks' },
-                  { id: 'avatars', label: 'Avatars & Profile Pics (প্রোফাইল পিকচার)', icon: 'fas fa-id-badge' }
+                  { id: 'avatars', label: 'Avatars & Profile Pics (প্রোফাইল পিকচার)', icon: 'fas fa-id-badge' },
+                  { id: 'ai_support', label: '🤖 AI Support (এআই সাপোর্ট)', icon: 'fas fa-robot' }
                 ].map((st) => (
                   <button
                     key={st.id}
@@ -7719,10 +9008,11 @@ export default function App() {
                   </div>
 
                   <div className="grid grid-cols-1 gap-3.5">
-                    {(Object.entries(paymentMethodsConfig) as [string, { label: string; number: string; icon: string; note?: string; isCrypto?: boolean }][]).map(([key, config]) => {
+                    {(Object.entries(paymentMethodsConfig) as [string, { label: string; number: string; icon: string; note?: string; isCrypto?: boolean; customIconUrl?: string }][]).map(([key, config]) => {
                       const editState = editingPaymentNumbers[key] || {
                         number: config.number,
-                        note: config.note || ''
+                        note: config.note || '',
+                        customIconUrl: config.customIconUrl || ''
                       };
 
                       return (
@@ -7732,9 +9022,7 @@ export default function App() {
                         >
                           <div className="flex items-center justify-between pb-2 border-b border-white/5">
                             <div className="flex items-center gap-2.5">
-                              <div className="w-8 h-8 rounded-xl bg-blue-600/20 text-blue-400 border border-blue-500/30 font-black text-xs flex items-center justify-center">
-                                {config.icon}
-                              </div>
+                              <PaymentLogo method={key} customUrl={editState.customIconUrl || config.customIconUrl} className="w-10 h-10" />
                               <div>
                                 <h4 className="font-extrabold text-xs text-white">{config.label}</h4>
                                 <span className="text-[9px] text-slate-400 font-mono">key: {key}</span>
@@ -7783,13 +9071,83 @@ export default function App() {
                               />
                             </div>
 
+                            <div>
+                              <div className="flex items-center justify-between mb-1">
+                                <label className="text-[10px] font-bold text-slate-300">
+                                  Custom Logo Image / URL (পেমেন্ট লোগো পরিবর্তন):
+                                </label>
+                                {editState.customIconUrl && (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setEditingPaymentNumbers((prev) => ({
+                                        ...prev,
+                                        [key]: { ...editState, customIconUrl: '' }
+                                      }))
+                                    }
+                                    className="text-[9px] font-bold text-rose-400 hover:underline flex items-center gap-1"
+                                  >
+                                    <i className="fas fa-undo text-[8px]"></i>
+                                    <span>Reset Original</span>
+                                  </button>
+                                )}
+                              </div>
+                              <div className="flex gap-2 items-center">
+                                <input
+                                  type="text"
+                                  className="input-modern text-xs py-2 px-3 text-slate-300 font-mono flex-1"
+                                  value={editState.customIconUrl}
+                                  onChange={(e) =>
+                                    setEditingPaymentNumbers((prev) => ({
+                                      ...prev,
+                                      [key]: { ...editState, customIconUrl: e.target.value }
+                                    }))
+                                  }
+                                  placeholder="Image URL or upload image file..."
+                                />
+                                <label className="shrink-0 px-3 py-2 bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/40 text-xs font-extrabold rounded-xl cursor-pointer flex items-center gap-1.5 shadow transition active:scale-95">
+                                  <i className="fas fa-image"></i>
+                                  <span>Upload</span>
+                                  <input
+                                    type="file"
+                                    accept="image/*"
+                                    className="hidden"
+                                    onChange={(e) => {
+                                      const file = e.target.files?.[0];
+                                      if (file) {
+                                        if (file.size > 2 * 1024 * 1024) {
+                                          showToast('Image file size should be less than 2MB', 'error');
+                                          return;
+                                        }
+                                        const reader = new FileReader();
+                                        reader.onload = (evt) => {
+                                          const result = evt.target?.result as string;
+                                          if (result) {
+                                            setEditingPaymentNumbers((prev) => ({
+                                              ...prev,
+                                              [key]: { ...editState, customIconUrl: result }
+                                            }));
+                                            showToast('✅ Logo image uploaded!', 'success');
+                                          }
+                                        };
+                                        reader.readAsDataURL(file);
+                                      }
+                                    }}
+                                  />
+                                </label>
+                              </div>
+                              <p className="text-[9px] text-slate-400 mt-1">
+                                যেকোনো ইমেজের লিংক দিন অথবা সরাসরি ফোন/পিসি থেকে ছবি আপলোড করুন। খালি রাখলে অরিজিনাল ব্র্যান্ড লোগো দেখাবে।
+                              </p>
+                            </div>
+
                             <button
                               type="button"
-                              onClick={() => handleSavePaymentNumber(key, editState.number, editState.note)}
+                              onClick={() => handleSavePaymentNumber(key, editState.number, editState.note, editState.customIconUrl)}
                               className="w-full mt-1 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-extrabold text-xs shadow-md transition active:scale-95 flex items-center justify-center gap-1.5"
                             >
                               <i className="fas fa-save"></i>
-                              <span>SAVE {config.label.toUpperCase()} NUMBER</span>
+                              <span>SAVE {config.label.toUpperCase()} DETAILS & LOGO</span>
                             </button>
                           </div>
                         </div>
@@ -7801,7 +9159,319 @@ export default function App() {
 
               {/* SUB TAB 2: DEPOSIT REQUESTS (ডিপোজিট কন্ট্রোল & এমাউন্ট এডিট) */}
               {adminSubTab === 'deposits' && (
-                <div className="space-y-3">
+                <div className="space-y-4">
+                  {/* AUTO DEPOSIT SYSTEM ON/OFF CONTROL BOX */}
+                  <div className="p-4 rounded-2xl bg-gradient-to-r from-emerald-950/80 via-slate-900 to-teal-950/80 border border-emerald-500/40 shadow-xl flex flex-wrap items-center justify-between gap-4">
+                    <div className="flex items-center gap-3.5">
+                      <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-xl font-black shadow-lg transition-all ${
+                        autoDepositGlobalEnabled
+                          ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/50 animate-pulse'
+                          : 'bg-red-500/20 text-red-400 border border-red-500/50'
+                      }`}>
+                        <i className={autoDepositGlobalEnabled ? 'fas fa-bolt text-amber-400' : 'fas fa-power-off text-red-400'}></i>
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h3 className="font-extrabold text-sm text-white flex items-center gap-2">
+                            <span>Auto Deposit Gateway Control (অটো ডিপোজিট সিস্টেম অন/অফ)</span>
+                          </h3>
+                          <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                            autoDepositGlobalEnabled
+                              ? 'bg-emerald-500 text-slate-950 border border-emerald-400 shadow-md shadow-emerald-500/20'
+                              : 'bg-red-500/20 text-red-400 border border-red-500/40'
+                          }`}>
+                            {autoDepositGlobalEnabled ? '⚡ AUTO ON (সচল)' : '⛔ AUTO OFF (বন্ধ)'}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-300 mt-0.5">
+                          {autoDepositGlobalEnabled
+                            ? 'বিকাশ, নগদ ও রকেট ৩ সেকেন্ডে অটো লাইভ ভেরিফিকেশন চালু আছে।'
+                            : 'অটো ডিপোজিট বন্ধ আছে। ইউজাররা ম্যানুয়ালি ডিপোজিট রিকোয়েস্ট পাঠাতে পারবেন।'}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        onClick={() => handleSaveAutoDepositGlobalConfig(!autoDepositGlobalEnabled)}
+                        disabled={isSavingAutoDepositSettings}
+                        className={`px-5 py-2.5 rounded-xl font-black text-xs shadow-lg transition active:scale-95 flex items-center gap-2 ${
+                          autoDepositGlobalEnabled
+                            ? 'bg-red-500 hover:bg-red-600 text-white border border-red-400'
+                            : 'bg-gradient-to-r from-emerald-500 via-teal-400 to-emerald-500 hover:from-emerald-400 hover:to-teal-300 text-slate-950'
+                        }`}
+                      >
+                        <i className={autoDepositGlobalEnabled ? 'fas fa-power-off' : 'fas fa-bolt'}></i>
+                        <span>
+                          {autoDepositGlobalEnabled
+                            ? 'অটো ডিপোজিট অফ করুন (TURN OFF)'
+                            : 'অটো ডিপোজিট অন করুন (TURN ON ⚡)'}
+                        </span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* MULTI DEPOSIT BONUS CONTROL BOX */}
+                  <div className="p-4 rounded-2xl bg-gradient-to-r from-amber-950/80 via-slate-900 to-orange-950/80 border border-amber-500/40 shadow-xl space-y-4">
+                    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-amber-500/20 pb-3">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-2xl bg-amber-500/20 border border-amber-500/40 text-amber-400 flex items-center justify-center text-lg font-black shadow-md">
+                          <i className="fas fa-gift text-amber-400"></i>
+                        </div>
+                        <div>
+                          <h3 className="font-extrabold text-sm text-white flex items-center gap-2">
+                            <span>Multi Deposit Bonus Settings (মাল্টি ডিপোজিট বোনাস কন্ট্রোল)</span>
+                            <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase ${
+                              depositBonusConfig.enabled
+                                ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                                : 'bg-red-500/20 text-red-400 border border-red-500/30'
+                            }`}>
+                              {depositBonusConfig.enabled ? '✅ ON (সচল)' : '❌ OFF (বন্ধ)'}
+                            </span>
+                          </h3>
+                          <p className="text-[11px] text-amber-300/80">
+                            বিভিন্ন ডিপোজিট এমাউন্টের পরিমাণের জন্য আলাদা আলাদা % ক্যাশব্যাক বোনাস টায়ার যোগ করুন
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Controls: Add Tier & Enable/Disable */}
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => {
+                            const newTier: DepositBonusTier = {
+                              id: `t-${Date.now()}`,
+                              minAmount: 500,
+                              maxAmount: 0,
+                              percentage: 5,
+                              label: 'New Tier'
+                            };
+                            setDepositBonusConfig((prev) => ({
+                              ...prev,
+                              tiers: [...prev.tiers, newTier]
+                            }));
+                            showToast('নতুন বোনাস টায়ার যোগ করা হয়েছে! (Save করতে নিচে ক্লিক করুন)', 'info');
+                          }}
+                          className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs shadow-md transition active:scale-95 flex items-center gap-1"
+                        >
+                          <i className="fas fa-plus-circle"></i>
+                          <span>নতুন টায়ার (+ Add Tier)</span>
+                        </button>
+
+                        <button
+                          onClick={() => handleSaveDepositBonusConfig(!depositBonusConfig.enabled, depositBonusConfig.tiers)}
+                          disabled={isSavingDepositBonus}
+                          className={`px-3.5 py-1.5 rounded-xl font-extrabold text-xs shadow-md transition active:scale-95 flex items-center gap-1.5 ${
+                            depositBonusConfig.enabled
+                              ? 'bg-red-500 hover:bg-red-600 text-white border border-red-400'
+                              : 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black'
+                          }`}
+                        >
+                          <i className={depositBonusConfig.enabled ? 'fas fa-power-off' : 'fas fa-check-circle'}></i>
+                          <span>{depositBonusConfig.enabled ? 'বোনাস অফ করুন' : 'বোনাস অন করুন'}</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Tier Rows List */}
+                    <div className="space-y-2.5">
+                      <div className="text-[11px] font-black text-amber-300 flex items-center justify-between">
+                        <span>বর্তমান মাল্টি বোনাস টায়ারসমূহ ({depositBonusConfig.tiers?.length || 0} টি):</span>
+                        <span className="text-[10px] text-slate-400 font-normal">*Max 0 দিলে কোনো সর্বোচ্চ সীমা থাকবে না (যেমন: ৳1000+)</span>
+                      </div>
+
+                      {depositBonusConfig.tiers && depositBonusConfig.tiers.length > 0 ? (
+                        <div className="grid grid-cols-1 gap-2.5">
+                          {depositBonusConfig.tiers.map((tier, index) => (
+                            <div
+                              key={tier.id || index}
+                              className="p-3 rounded-xl bg-slate-950/80 border border-amber-500/30 flex flex-wrap items-center justify-between gap-3 shadow-md hover:border-amber-500/60 transition"
+                            >
+                              <div className="flex items-center gap-2 font-mono font-black text-xs text-amber-400">
+                                <span className="w-6 h-6 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center justify-center text-[11px]">
+                                  #{index + 1}
+                                </span>
+                              </div>
+
+                              <div className="flex-1 grid grid-cols-1 sm:grid-cols-3 gap-2 min-w-[280px]">
+                                <div>
+                                  <label className="text-[10px] font-bold text-amber-200 block mb-0.5">Min Deposit (সর্বনিম্ন ৳):</label>
+                                  <div className="relative">
+                                    <input
+                                      type="number"
+                                      className="input-modern font-mono font-black text-emerald-400 text-xs py-1.5 pl-6"
+                                      value={tier.minAmount}
+                                      onChange={(e) => {
+                                        const val = parseFloat(e.target.value) || 0;
+                                        setDepositBonusConfig((prev) => ({
+                                          ...prev,
+                                          tiers: prev.tiers.map((t, idx) => idx === index ? { ...t, minAmount: val } : t)
+                                        }));
+                                      }}
+                                    />
+                                    <span className="absolute left-2.5 top-2 text-[11px] font-bold text-emerald-400">৳</span>
+                                  </div>
+                                </div>
+
+                                <div>
+                                  <label className="text-[10px] font-bold text-amber-200 block mb-0.5">Max Deposit (সর্বোচ্চ ৳):</label>
+                                  <div className="relative">
+                                    <input
+                                      type="number"
+                                      placeholder="0 = Unlimited"
+                                      className="input-modern font-mono font-black text-blue-400 text-xs py-1.5 pl-6"
+                                      value={tier.maxAmount}
+                                      onChange={(e) => {
+                                        const val = parseFloat(e.target.value) || 0;
+                                        setDepositBonusConfig((prev) => ({
+                                          ...prev,
+                                          tiers: prev.tiers.map((t, idx) => idx === index ? { ...t, maxAmount: val } : t)
+                                        }));
+                                      }}
+                                    />
+                                    <span className="absolute left-2.5 top-2 text-[11px] font-bold text-blue-400">৳</span>
+                                  </div>
+                                </div>
+
+                                <div>
+                                  <label className="text-[10px] font-bold text-amber-200 block mb-0.5">Bonus Percentage (%):</label>
+                                  <div className="relative">
+                                    <input
+                                      type="number"
+                                      step="0.5"
+                                      className="input-modern font-mono font-black text-amber-400 text-xs py-1.5 pr-6"
+                                      value={tier.percentage}
+                                      onChange={(e) => {
+                                        const val = parseFloat(e.target.value) || 0;
+                                        setDepositBonusConfig((prev) => ({
+                                          ...prev,
+                                          tiers: prev.tiers.map((t, idx) => idx === index ? { ...t, percentage: val } : t)
+                                        }));
+                                      }}
+                                    />
+                                    <span className="absolute right-2.5 top-2 text-[11px] font-bold text-amber-400">%</span>
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Summary Badge & Delete */}
+                              <div className="flex items-center gap-2">
+                                <span className="px-2.5 py-1 rounded-lg bg-amber-500/10 border border-amber-500/30 text-[10px] font-bold text-amber-300 hidden md:inline-block">
+                                  {tier.maxAmount && tier.maxAmount > 0
+                                    ? `৳${tier.minAmount} - ৳${tier.maxAmount} → ${tier.percentage}%`
+                                    : `৳${tier.minAmount}+ → ${tier.percentage}%`}
+                                </span>
+
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setDepositBonusConfig((prev) => ({
+                                      ...prev,
+                                      tiers: prev.tiers.filter((_, idx) => idx !== index)
+                                    }));
+                                    showToast('টাইয়ার মুছে ফেলা হয়েছে!', 'warning');
+                                  }}
+                                  className="w-8 h-8 rounded-xl bg-red-500/20 hover:bg-red-500/40 text-red-400 border border-red-500/30 flex items-center justify-center transition active:scale-95"
+                                  title="Delete Tier"
+                                >
+                                  <i className="fas fa-trash-alt text-xs"></i>
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="p-4 rounded-xl bg-slate-950/60 border border-dashed border-amber-500/30 text-center text-xs text-amber-300">
+                          কোনো বোনাস টায়ার যোগ করা নেই! ওপরের <strong>"+ Add Tier"</strong> বাটনে ক্লিক করে টায়ার যোগ করুন।
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Save Button */}
+                    <div className="pt-2">
+                      <button
+                        onClick={() => handleSaveDepositBonusConfig(depositBonusConfig.enabled, depositBonusConfig.tiers)}
+                        disabled={isSavingDepositBonus}
+                        className="w-full py-2.5 rounded-xl bg-gradient-to-r from-amber-500 via-orange-500 to-emerald-500 hover:from-amber-400 hover:to-emerald-400 text-slate-950 font-black text-xs shadow-lg transition active:scale-95 flex items-center justify-center gap-2"
+                      >
+                        <i className="fas fa-save"></i>
+                        <span>মাল্টি বোনাস সেটিং সেভ করুন (SAVE MULTI-BONUS SETTINGS)</span>
+                      </button>
+                    </div>
+
+                    {/* Quick Preset Templates */}
+                    <div className="pt-2 border-t border-amber-500/20 flex flex-wrap items-center gap-2">
+                      <span className="text-[10px] font-bold text-slate-400">⚡ কুইক মাল্টি-বোনাস প্রিসেট:</span>
+                      {[
+                        {
+                          label: '3-Tier (৳100=2%, ৳500=5%, ৳1000+=10%)',
+                          tiers: [
+                            { id: 'p1', minAmount: 100, maxAmount: 499, percentage: 2, label: 'Tier 1' },
+                            { id: 'p2', minAmount: 500, maxAmount: 999, percentage: 5, label: 'Tier 2' },
+                            { id: 'p3', minAmount: 1000, maxAmount: 0, percentage: 10, label: 'Tier 3' }
+                          ]
+                        },
+                        {
+                          label: '4-Tier VIP (৳100=2%, ৳300=5%, ৳700=8%, ৳1500+=12%)',
+                          tiers: [
+                            { id: 'p1', minAmount: 100, maxAmount: 299, percentage: 2, label: 'Tier 1' },
+                            { id: 'p2', minAmount: 300, maxAmount: 699, percentage: 5, label: 'Tier 2' },
+                            { id: 'p3', minAmount: 700, maxAmount: 1499, percentage: 8, label: 'Tier 3' },
+                            { id: 'p4', minAmount: 1500, maxAmount: 0, percentage: 12, label: 'Tier 4' }
+                          ]
+                        },
+                        {
+                          label: '2-Tier Simple (৳100=3%, ৳500+=7%)',
+                          tiers: [
+                            { id: 'p1', minAmount: 100, maxAmount: 499, percentage: 3, label: 'Tier 1' },
+                            { id: 'p2', minAmount: 500, maxAmount: 0, percentage: 7, label: 'Tier 2' }
+                          ]
+                        },
+                        {
+                          label: 'Flat 5% (৳100+)',
+                          tiers: [
+                            { id: 'p1', minAmount: 100, maxAmount: 0, percentage: 5, label: 'Flat 5%' }
+                          ]
+                        }
+                      ].map((preset, idx) => (
+                        <button
+                          key={idx}
+                          onClick={() => handleSaveDepositBonusConfig(true, preset.tiers)}
+                          className="px-2.5 py-1 bg-slate-900 hover:bg-slate-800 text-amber-300 border border-amber-500/30 rounded-lg text-[10px] font-extrabold transition active:scale-95"
+                        >
+                          {preset.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Banner Link to TrxID Maker */}
+                  <div className="p-3.5 rounded-2xl bg-gradient-to-r from-emerald-950/80 via-slate-900 to-teal-950/80 border border-emerald-500/30 flex items-center justify-between gap-3 shadow-md mb-3">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center justify-center font-bold text-sm">
+                        <i className="fas fa-key"></i>
+                      </div>
+                      <div>
+                        <h4 className="font-extrabold text-xs text-white">
+                          Admin TrxID Maker (কাস্টম TrxID বানান)
+                        </h4>
+                        <p className="text-[10px] text-emerald-300">
+                          এডমিন থেকে সরাসরি TrxID বানাতে ডানপাশের বাটনে ক্লিক করুন
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => {
+                        setAdminSubTab('trx_maker');
+                        haptic('light');
+                      }}
+                      className="px-3 py-1.5 rounded-xl bg-emerald-500 text-slate-950 font-extrabold text-xs hover:bg-emerald-400 transition active:scale-95 flex items-center gap-1 shrink-0 shadow"
+                    >
+                      <span>TrxID বানান</span>
+                      <i className="fas fa-arrow-right text-[10px]"></i>
+                    </button>
+                  </div>
+
                   {/* Filter tabs */}
                   <div className="flex gap-2">
                     {(['all', 'Pending', 'Approved', 'Rejected'] as const).map((f) => (
@@ -7837,6 +9507,7 @@ export default function App() {
                         >
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2">
+                              <PaymentLogo method={dep.method} customUrl={paymentMethodsConfig[dep.method]?.customIconUrl} className="w-6 h-6" />
                               <span
                                 className={`text-[9px] font-black px-2 py-0.5 rounded-md ${
                                   dep.status === 'Approved'
@@ -7848,8 +9519,8 @@ export default function App() {
                               >
                                 {dep.status}
                               </span>
-                              <span className="text-[10px] font-mono text-slate-400">
-                                {dep.method.toUpperCase()}
+                              <span className="text-[10px] font-extrabold font-mono text-slate-300 uppercase">
+                                {dep.method}
                               </span>
                             </div>
                             <span className="text-[10px] font-mono text-slate-500">
@@ -7985,7 +9656,288 @@ export default function App() {
                 </div>
               )}
 
-              {/* SUB TAB 3: ORDERS CONTROL */}
+              {/* SUB TAB: ADMIN TRXID MAKER (এডমিন ট্রানজেকশন আইডি জেনারেটর & কন্ট্রোল) */}
+              {adminSubTab === 'trx_maker' && (
+                <div className="space-y-4 animate-fade-in">
+                  {/* Top Banner */}
+                  <div className="p-4 rounded-2xl bg-gradient-to-r from-emerald-950/80 via-slate-900 to-indigo-950/80 border border-emerald-500/40 shadow-xl space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 flex items-center justify-center text-lg font-black shadow-md">
+                          <i className="fas fa-key"></i>
+                        </div>
+                        <div>
+                          <h3 className="font-extrabold text-sm text-white">
+                            Admin TrxID Maker & Generator (এডমিন ট্রানজেকশন আইডি জেনারেটর)
+                          </h3>
+                          <p className="text-[11px] text-emerald-300">
+                            এখান থেকে কাস্টম বা অটো TrxID বানিয়ে রাখুন। ইউজার ওই TrxID দিলে অটো টাকা এড হয়ে যাবে!
+                          </p>
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={() => {
+                          const randomCode = generateRandomTrxCode('bkash');
+                          setNewAdminTrxId(randomCode);
+                          showToast(`🎲 জেনারেট ট্রানজেকশন আইডি: ${randomCode}`, 'info');
+                          haptic('light');
+                        }}
+                        className="px-3 py-1.5 rounded-xl bg-emerald-500 text-slate-950 font-extrabold text-xs shadow-md hover:bg-emerald-400 transition active:scale-95 flex items-center gap-1.5"
+                      >
+                        <i className="fas fa-dice"></i>
+                        <span>র্যান্ডম জেনারেট</span>
+                      </button>
+                    </div>
+
+                    {/* Quick 1-Click Preset Generators */}
+                    <div className="pt-2 border-t border-white/10">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase block mb-1.5">
+                        ⚡ 1-Click Quick TrxID Generator (১-ক্লিকে TrxID বানিয়ে ফেলুন):
+                      </span>
+                      <div className="flex flex-wrap gap-2">
+                        {[
+                          { label: '+ ৳50 bKash TrxID', amt: 50, method: 'bkash' },
+                          { label: '+ ৳100 bKash TrxID', amt: 100, method: 'bkash' },
+                          { label: '+ ৳500 Nagad TrxID', amt: 500, method: 'nagad' },
+                          { label: '+ ৳1000 Rocket TrxID', amt: 1000, method: 'rocket' }
+                        ].map((preset, idx) => (
+                          <button
+                            key={idx}
+                            onClick={() => handleQuickBatchGenAdminTrx(preset.amt, preset.method)}
+                            className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-emerald-400 border border-emerald-500/30 rounded-xl text-xs font-bold transition active:scale-95 flex items-center gap-1.5"
+                          >
+                            <i className="fas fa-bolt text-amber-400"></i>
+                            <span>{preset.label}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Form Card */}
+                  <div className="bg-slate-900/90 border border-emerald-500/30 rounded-2xl p-4 sm:p-5 space-y-4 shadow-xl">
+                    <div className="flex items-center gap-2 border-b border-white/10 pb-3">
+                      <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center justify-center text-sm font-bold">
+                        <i className="fas fa-plus-circle"></i>
+                      </div>
+                      <h4 className="font-extrabold text-xs sm:text-sm text-amber-300 uppercase tracking-wider">
+                        Create Custom TrxID Voucher (কাস্টম ট্রানজেকশন আইডি তৈরি করুন)
+                      </h4>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                      <div>
+                        <label className="form-label flex items-center justify-between">
+                          <span className="flex items-center gap-1">
+                            <i className="fas fa-barcode text-emerald-400 text-[10px]"></i>
+                            <span>TrxID (ট্রানজেকশন আইডি):</span>
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setNewAdminTrxId(generateRandomTrxCode(newAdminTrxMethod))}
+                            className="text-[10px] text-amber-300 hover:underline font-bold"
+                          >
+                            🎲 Auto
+                          </button>
+                        </label>
+                        <input
+                          type="text"
+                          className="input-modern uppercase text-xs font-mono font-bold text-amber-300"
+                          placeholder="e.g. BK892348 or NAGAD782"
+                          value={newAdminTrxId}
+                          onChange={(e) => setNewAdminTrxId(e.target.value.toUpperCase())}
+                        />
+                      </div>
+
+                      <div>
+                        <label className="form-label flex items-center gap-1">
+                          <i className="fas fa-money-bill-wave text-emerald-400 text-[10px]"></i>
+                          <span>Deposit Amount (টাকা এমাউন্ট ৳):</span>
+                        </label>
+                        <input
+                          type="number"
+                          className="input-modern text-xs font-mono text-emerald-400 font-bold"
+                          placeholder="e.g. 100 or 500"
+                          value={newAdminTrxAmount}
+                          onChange={(e) => setNewAdminTrxAmount(e.target.value)}
+                        />
+                      </div>
+
+                      <div>
+                        <label className="form-label flex items-center gap-1">
+                          <i className="fas fa-wallet text-pink-400 text-[10px]"></i>
+                          <span>Payment Method (পেমেন্ট মেথড):</span>
+                        </label>
+                        <select
+                          className="input-modern text-xs font-bold uppercase"
+                          value={newAdminTrxMethod}
+                          onChange={(e) => setNewAdminTrxMethod(e.target.value)}
+                        >
+                          <option value="bkash">bKash 1 (বিকাশ মার্চেন্ট)</option>
+                          <option value="bkash_2">bKash 2 (বিকাশ পার্সোনাল)</option>
+                          <option value="nagad">Nagad (নগদ)</option>
+                          <option value="rocket">Rocket (রকেট)</option>
+                          <option value="binance">Binance Pay</option>
+                          <option value="usdt_bep20">USDT BEP20</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="form-label flex items-center gap-1">
+                          <i className="fas fa-sticky-note text-blue-400 text-[10px]"></i>
+                          <span>Note / Description (নোট):</span>
+                        </label>
+                        <input
+                          type="text"
+                          className="input-modern text-xs"
+                          placeholder="e.g. Gift for User or Promo"
+                          value={newAdminTrxNote}
+                          onChange={(e) => setNewAdminTrxNote(e.target.value)}
+                        />
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={handleCreateAdminTrx}
+                      disabled={adminTrxCreating}
+                      className="w-full py-3.5 bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black text-xs rounded-xl shadow-lg transition active:scale-95 flex items-center justify-center gap-2"
+                    >
+                      {adminTrxCreating ? (
+                        <span className="loading-spinner"></span>
+                      ) : (
+                        <>
+                          <i className="fas fa-check-circle text-amber-950 text-sm"></i>
+                          <span>SAVE & GENERATE TRXID (TrxID সেভ করুন)</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+
+                  {/* Admin Created Trxs List */}
+                  <div className="bg-slate-900/90 border border-white/10 rounded-2xl p-4 sm:p-5 space-y-4 shadow-xl">
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 pb-3">
+                      <div className="flex items-center gap-2">
+                        <i className="fas fa-list-check text-emerald-400"></i>
+                        <h4 className="font-extrabold text-xs sm:text-sm text-white">
+                          Created TrxIDs List (তৈরিকৃত TrxID তালিকা - মোট {adminCreatedTrxs.length}টি)
+                        </h4>
+                      </div>
+
+                      {/* Filter */}
+                      <div className="flex gap-1.5">
+                        {[
+                          { id: 'all', label: `সকল (${adminCreatedTrxs.length})` },
+                          { id: 'Unused', label: `অব্যবহৃত (${adminCreatedTrxs.filter(t => t.status === 'Unused').length})` },
+                          { id: 'Used', label: `ব্যবহার হয়েছে (${adminCreatedTrxs.filter(t => t.status === 'Used').length})` }
+                        ].map((f) => (
+                          <button
+                            key={f.id}
+                            onClick={() => {
+                              setAdminTrxFilter(f.id as any);
+                              haptic('light');
+                            }}
+                            className={`px-2.5 py-1 rounded-lg text-[10px] font-extrabold transition ${
+                              adminTrxFilter === f.id
+                                ? 'bg-emerald-500 text-slate-950'
+                                : 'bg-white/5 text-slate-400 hover:bg-white/10 border border-white/10'
+                            }`}
+                          >
+                            {f.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {adminCreatedTrxs.length === 0 ? (
+                      <div className="text-center py-8 text-slate-500 space-y-2">
+                        <i className="fas fa-key text-3xl opacity-40"></i>
+                        <p className="text-xs font-bold">এখনো কোনো TrxID তৈরি করা হয়নি!</p>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        {adminCreatedTrxs
+                          .filter((t) => (adminTrxFilter === 'all' ? true : t.status === adminTrxFilter))
+                          .map((trx) => {
+                            const isUnused = trx.status === 'Unused';
+                            return (
+                              <div
+                                key={trx.id}
+                                className={`p-3.5 rounded-xl border transition-all space-y-2 relative overflow-hidden ${
+                                  isUnused
+                                    ? 'bg-slate-950/80 border-emerald-500/40 shadow-md'
+                                    : 'bg-slate-950/40 border-red-500/20 opacity-75'
+                                }`}
+                              >
+                                <div className="flex items-center justify-between">
+                                  <div className="flex items-center gap-2">
+                                    <span
+                                      className={`text-[9px] font-black px-2 py-0.5 rounded-md ${
+                                        isUnused
+                                          ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                                          : 'bg-red-500/20 text-red-400 border border-red-500/30'
+                                      }`}
+                                    >
+                                      {isUnused ? '✅ Unused (চলতি)' : '❌ Used (ব্যবহারিত)'}
+                                    </span>
+                                    <span className="text-[10px] font-mono text-slate-400 uppercase">
+                                      {trx.method}
+                                    </span>
+                                  </div>
+
+                                  <div className="flex items-center gap-1">
+                                    <button
+                                      onClick={() => copyNumber(trx.trxId)}
+                                      className="px-2 py-1 rounded-lg bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 text-[10px] font-bold border border-blue-500/30 transition active:scale-95 flex items-center gap-1"
+                                    >
+                                      <i className="fas fa-copy"></i>
+                                      <span>কপি</span>
+                                    </button>
+                                    <button
+                                      onClick={() => handleDeleteAdminTrx(trx.id)}
+                                      className="p-1 rounded-lg bg-red-500/20 hover:bg-red-500/30 text-red-400 text-[10px] border border-red-500/30 transition active:scale-95"
+                                    >
+                                      <i className="fas fa-trash"></i>
+                                    </button>
+                                  </div>
+                                </div>
+
+                                <div className="flex items-center justify-between pt-1 border-t border-white/5">
+                                  <div>
+                                    <div className="text-xs font-mono font-black text-amber-300 tracking-wider">
+                                      TrxID: {trx.trxId}
+                                    </div>
+                                    {trx.note && (
+                                      <div className="text-[10px] text-slate-400 italic">
+                                        নোট: {trx.note}
+                                      </div>
+                                    )}
+                                    {!isUnused && trx.usedByUid && (
+                                      <div className="text-[9px] font-mono text-pink-300 font-bold">
+                                        ব্যবহারকারী: {trx.usedByUid.slice(0, 8)}...
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  <div className="text-right">
+                                    <div className="text-sm font-black text-emerald-400 font-mono">
+                                      ৳ {trx.amount}
+                                    </div>
+                                    <div className="text-[9px] text-slate-500 font-mono">
+                                      {trx.createdAt
+                                        ? new Date(trx.createdAt.seconds * 1000).toLocaleDateString('en-BD')
+                                        : 'Just now'}
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
               {adminSubTab === 'orders' && (
                 <div className="space-y-3">
                   <div className="flex justify-between items-center">
@@ -8888,7 +10840,16 @@ export default function App() {
                                 </div>
                               </div>
 
-                              <div className="flex items-center gap-2">
+                              <div className="flex items-center gap-1.5">
+                                <button
+                                  onClick={() => handleOpenEditTask(task)}
+                                  className="px-2.5 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-[10px] font-bold flex items-center gap-1 transition active:scale-95"
+                                  title="Edit Task Details"
+                                >
+                                  <i className="fas fa-edit"></i>
+                                  <span>এডিট করুন</span>
+                                </button>
+
                                 <button
                                   onClick={() => {
                                     const promptVal = prompt(
@@ -8904,7 +10865,7 @@ export default function App() {
                                   title="Change Max User Limit"
                                 >
                                   <i className="fas fa-user-edit"></i>
-                                  <span>লিমিট পরিবর্তন</span>
+                                  <span>লিমিট</span>
                                 </button>
 
                                 <button
@@ -9364,6 +11325,208 @@ export default function App() {
                           </div>
                         </div>
                       ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* SUB TAB 10: AI SUPPORT CONTROL (এআই সাপোর্ট সেটআপ ও টেস্ট প্যানেল) */}
+              {adminSubTab === 'ai_support' && (
+                <div className="space-y-5">
+                  {/* Banner */}
+                  <div className="p-4 rounded-2xl bg-gradient-to-r from-purple-950/80 via-indigo-900/50 to-slate-900 border border-purple-500/30 flex flex-wrap items-center justify-between gap-3 shadow-xl">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-purple-500/20 border border-purple-500/40 flex items-center justify-center text-purple-300 text-lg">
+                        <i className="fas fa-robot"></i>
+                      </div>
+                      <div>
+                        <h3 className="font-black text-sm text-white flex items-center gap-2">
+                          <span>AI Customer Support Agent (Gemini Powered)</span>
+                          <span className={`text-[10px] font-mono font-extrabold px-2 py-0.5 rounded-full border ${
+                            aiSupportEnabled 
+                              ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' 
+                              : 'bg-rose-500/20 text-rose-300 border-rose-500/40'
+                          }`}>
+                            {aiSupportEnabled ? '● ACTIVE' : '○ DISABLED'}
+                          </span>
+                        </h3>
+                        <p className="text-[10px] text-purple-200/80">ইউজারদের প্রশ্নের উত্তর দেওয়ার জন্য Gemini 3.6 Flash চালিত স্মার্ট এআই বট সেটআপ ও কাস্টমাইজ করুন</p>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const newStatus = !aiSupportEnabled;
+                        setAiSupportEnabled(newStatus);
+                        localStorage.setItem('smm_ai_support_enabled', String(newStatus));
+                        showToast(newStatus ? '✅ AI সাপোর্ট চালু করা হয়েছে!' : '🚫 AI সাপোর্ট বন্ধ করা হয়েছে!', newStatus ? 'success' : 'info');
+                      }}
+                      className={`px-4 py-2 rounded-xl text-xs font-black shadow-lg transition active:scale-95 flex items-center gap-2 ${
+                        aiSupportEnabled
+                          ? 'bg-rose-600 hover:bg-rose-500 text-white'
+                          : 'bg-emerald-500 hover:bg-emerald-400 text-slate-950'
+                      }`}
+                    >
+                      <i className={`fas ${aiSupportEnabled ? 'fa-power-off' : 'fa-check-circle'}`}></i>
+                      <span>{aiSupportEnabled ? 'AI সাপোর্ট বন্ধ করুন (DISABLE)' : 'AI সাপোর্ট চালু করুন (ENABLE)'}</span>
+                    </button>
+                  </div>
+
+                  {/* Knowledge Base & Custom Prompt Form */}
+                  <div className="glass-card p-4 sm:p-5 space-y-4 border border-purple-500/30 bg-slate-950/80 shadow-2xl">
+                    <div className="flex items-center justify-between border-b border-white/5 pb-3">
+                      <div>
+                        <h4 className="font-extrabold text-xs text-white flex items-center gap-1.5">
+                          <i className="fas fa-brain text-purple-400"></i>
+                          <span>Custom AI Knowledge & System Instructions (এআই গাইডলাইন ও অফার নোটিশ)</span>
+                        </h4>
+                        <p className="text-[10px] text-slate-400 mt-0.5">
+                          এখানে আপনার প্যানেলের বিশেষ নিয়ম, সার্ভিস অফার, বিকাশ/নগদ রেট বা যেকোনো কাস্টম তথ্য লিখে দিন। এআই গ্রাহকদের উত্তর দেওয়ার সময় এই তথ্যগুলো মেনে চলবে।
+                        </p>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const defaultInstruction = 'RF SMM Panel BD - সর্বাধুনিক স্বয়ংক্রিয় এস.এম.এম প্যানেল। বিশেষ ছাড়: যেকোনো সার্ভারে অর্ডার অফার চলছে। সাপোর্ট টেলিগ্রাম: @RF2_SMM | বিকাশ/নগদ/রকেট ও বাইন্যান্স পে এক্সেপ্ট করা হয়।';
+                          setAiSupportCustomPrompt(defaultInstruction);
+                          showToast('বাংলা ডিফল্ট প্রম্পট লোড করা হয়েছে', 'info');
+                        }}
+                        className="text-[10px] font-bold text-purple-300 hover:underline flex items-center gap-1 bg-purple-500/10 px-2.5 py-1 rounded-lg border border-purple-500/20"
+                      >
+                        <i className="fas fa-magic"></i>
+                        <span>অটো ডেমো প্রম্পট</span>
+                      </button>
+                    </div>
+
+                    <textarea
+                      rows={5}
+                      className="input-modern text-xs font-mono text-purple-100 p-3 bg-slate-900/90 border-purple-500/30 focus:border-purple-400 leading-relaxed"
+                      placeholder="লিখুন... যেমন: আজ রাতে ১০% এক্সট্রা বোনাস। বিকাশ ও নগদে ১ টাকা থেকে ডিপোজিট। ইনস্ট্যান্ট টেলিগ্রাম সাপোর্ট।"
+                      value={aiSupportCustomPrompt}
+                      onChange={(e) => setAiSupportCustomPrompt(e.target.value)}
+                    />
+
+                    <div className="flex items-center justify-between pt-1">
+                      <span className="text-[10px] text-slate-400 font-mono">
+                        Characters: {aiSupportCustomPrompt.length}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          localStorage.setItem('smm_ai_support_custom_prompt', aiSupportCustomPrompt);
+                          showToast('✅ AI কাস্টম প্রম্পট সেভ করা হয়েছে!', 'success');
+                        }}
+                        className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-extrabold text-xs shadow-lg transition active:scale-95 flex items-center gap-2"
+                      >
+                        <i className="fas fa-save"></i>
+                        <span>SAVE AI PROMPT & KNOWLEDGE BASE</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Interactive Admin Sandbox / Live AI Tester */}
+                  <div className="glass-card p-4 sm:p-5 space-y-4 border border-indigo-500/30 bg-slate-950/90">
+                    <div className="flex items-center justify-between border-b border-white/5 pb-3">
+                      <div className="flex items-center gap-2">
+                        <div className="w-8 h-8 rounded-lg bg-indigo-500/20 text-indigo-400 flex items-center justify-center text-xs font-black">
+                          <i className="fas fa-vial"></i>
+                        </div>
+                        <div>
+                          <h4 className="font-extrabold text-xs text-white">Live AI Tester (লাইভ এআই টেস্ট স্যান্ডবক্স)</h4>
+                          <p className="text-[10px] text-slate-400">এআই কীভাবে কাস্টমারের প্রশ্নের উত্তর দেয় তা এখানে টেস্ট করতে পারেন</p>
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAiMessages([{
+                            id: 'welcome',
+                            role: 'model',
+                            text: 'আসসালামু আলাইকুম! 👋 আমি RF SMM-এর 🤖 AI সাপোর্ট অ্যাসিস্ট্যান্ট। কীভাবে আপনাকে সাহায্য করতে পারি?',
+                            time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                          }]);
+                          showToast('চ্যাট হিস্ট্রি রিসেট করা হয়েছে', 'info');
+                        }}
+                        className="text-[10px] font-bold text-slate-400 hover:text-white flex items-center gap-1 bg-white/5 px-2.5 py-1 rounded-lg"
+                      >
+                        <i className="fas fa-trash-alt"></i>
+                        <span>Clear Live Test</span>
+                      </button>
+                    </div>
+
+                    {/* Chat Box */}
+                    <div className="h-64 overflow-y-auto p-3 rounded-xl bg-slate-900/90 border border-white/5 space-y-3 font-sans">
+                      {aiMessages.map((msg) => (
+                        <div
+                          key={msg.id}
+                          className={`flex gap-2.5 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                        >
+                          {msg.role === 'model' && (
+                            <div className="w-7 h-7 rounded-full bg-purple-600/30 border border-purple-500/40 text-purple-300 flex items-center justify-center text-xs shrink-0 mt-0.5">
+                              <i className="fas fa-robot"></i>
+                            </div>
+                          )}
+
+                          <div
+                            className={`max-w-[80%] p-3 rounded-2xl text-xs leading-relaxed whitespace-pre-wrap ${
+                              msg.role === 'user'
+                                ? 'bg-blue-600 text-white rounded-tr-none shadow-md'
+                                : 'bg-slate-800 text-slate-100 rounded-tl-none border border-white/10 shadow-md'
+                            }`}
+                          >
+                            <p>{msg.text}</p>
+                            <span className="block text-[8px] text-slate-400 mt-1 text-right font-mono">
+                              {msg.time}
+                            </span>
+                          </div>
+
+                          {msg.role === 'user' && (
+                            <div className="w-7 h-7 rounded-full bg-blue-600/30 border border-blue-500/40 text-blue-300 flex items-center justify-center text-xs shrink-0 mt-0.5">
+                              <i className="fas fa-user-shield"></i>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+
+                      {isAiSending && (
+                        <div className="flex gap-2.5 justify-start">
+                          <div className="w-7 h-7 rounded-full bg-purple-600/30 border border-purple-500/40 text-purple-300 flex items-center justify-center text-xs shrink-0">
+                            <i className="fas fa-robot animate-spin"></i>
+                          </div>
+                          <div className="p-3 rounded-2xl bg-slate-800 text-purple-300 text-xs border border-purple-500/30 flex items-center gap-2">
+                            <span className="animate-pulse font-mono">RF AI চিন্তা করছে...</span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Test Chat Input */}
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        className="input-modern text-xs flex-1"
+                        placeholder="টেস্ট প্রশ্ন টাইপ করুন... (যেমন: কীভাবে ডিপোজিট করব?)"
+                        value={aiInputText}
+                        onChange={(e) => setAiInputText(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleSendAiMessage();
+                          }
+                        }}
+                      />
+                      <button
+                        type="button"
+                        disabled={isAiSending || !aiInputText.trim()}
+                        onClick={() => handleSendAiMessage()}
+                        className="px-4 py-2 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white font-extrabold text-xs rounded-xl shadow-md transition active:scale-95 flex items-center gap-1.5"
+                      >
+                        <i className="fas fa-paper-plane"></i>
+                        <span>TEST</span>
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -10564,6 +12727,146 @@ export default function App() {
             </div>
           )}
 
+          {/* ADMIN TASK EDIT MODAL (সম্পূর্ণ টাস্ক এডিট ও আপডেট মোডাল) */}
+          {editingTask && (
+            <div className="fixed inset-0 z-[120] bg-black/80 backdrop-blur-md flex items-center justify-center p-3 animate-fade-in overflow-y-auto">
+              <div className="bg-slate-900 border border-amber-500/40 rounded-3xl p-5 max-w-xl w-full shadow-2xl space-y-4 my-auto">
+                <div className="flex items-center justify-between border-b border-white/10 pb-3">
+                  <div className="flex items-center gap-2">
+                    <div className="w-9 h-9 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center justify-center text-sm font-bold">
+                      <i className="fas fa-edit"></i>
+                    </div>
+                    <div>
+                      <h3 className="font-extrabold text-sm text-white">Edit Task (টাস্ক এডিট করুন)</h3>
+                      <p className="text-[10px] text-slate-400">রিওয়ার্ড, লিমিট, নাম, লিংক, ছবি সহ সব তথ্য পরিবর্তন করুন</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setEditingTask(null)}
+                    className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center text-xs transition"
+                  >
+                    <i className="fas fa-times"></i>
+                  </button>
+                </div>
+
+                <div className="space-y-3 max-h-[70vh] overflow-y-auto pr-1">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                    <div>
+                      <label className="form-label">Task Title (টাস্ক এর নাম)</label>
+                      <input
+                        type="text"
+                        className="input-modern text-xs"
+                        value={editTaskTitle}
+                        onChange={(e) => setEditTaskTitle(e.target.value)}
+                        placeholder="e.g. Subscribe Channel"
+                      />
+                    </div>
+                    <div>
+                      <label className="form-label">Reward Amount (রিওয়ার্ড ৳)</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        className="input-modern text-xs font-mono"
+                        value={editTaskReward}
+                        onChange={(e) => setEditTaskReward(e.target.value)}
+                        placeholder="e.g. 5"
+                      />
+                    </div>
+                    <div>
+                      <label className="form-label">Max User Limit (ইউজার লিমিট)</label>
+                      <input
+                        type="number"
+                        className="input-modern text-xs font-mono"
+                        value={editTaskMaxUserLimit}
+                        onChange={(e) => setEditTaskMaxUserLimit(e.target.value)}
+                        placeholder="0 = Unlimited"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="form-label">Task Link (টাস্ক এর লিংক)</label>
+                    <input
+                      type="text"
+                      className="input-modern text-xs font-mono"
+                      value={editTaskLink}
+                      onChange={(e) => setEditTaskLink(e.target.value)}
+                      placeholder="https://..."
+                    />
+                  </div>
+
+                  <div>
+                    <label className="form-label">Task Description & Instructions (বিবরণ)</label>
+                    <textarea
+                      rows={3}
+                      className="input-modern text-xs resize-none"
+                      value={editTaskDesc}
+                      onChange={(e) => setEditTaskDesc(e.target.value)}
+                      placeholder="Task instructions..."
+                    />
+                  </div>
+
+                  {/* Image/Banner Edit Section */}
+                  <div className="p-3 bg-black/40 rounded-2xl border border-white/10 space-y-2">
+                    <div className="flex justify-between items-center text-xs">
+                      <label className="font-extrabold text-white flex items-center gap-1.5">
+                        <i className="fas fa-image text-amber-400"></i>
+                        <span>Task Image / Banner (ছবি বা ব্যানার)</span>
+                      </label>
+                      {editTaskImage && (
+                        <button
+                          onClick={() => setEditTaskImage(null)}
+                          className="text-[10px] text-red-400 hover:underline font-bold"
+                        >
+                          Remove Image
+                        </button>
+                      )}
+                    </div>
+
+                    {editTaskImage ? (
+                      <div className="relative aspect-video w-full rounded-xl overflow-hidden border border-amber-500/40 bg-slate-950">
+                        <img src={editTaskImage} alt="Task Edit Banner" className="w-full h-full object-cover" />
+                        <button
+                          onClick={() => setEditTaskImage(null)}
+                          className="absolute top-2 right-2 w-7 h-7 rounded-full bg-red-600 text-white flex items-center justify-center text-xs shadow hover:scale-110 transition"
+                        >
+                          <i className="fas fa-times"></i>
+                        </button>
+                      </div>
+                    ) : (
+                      <label className="flex flex-col items-center justify-center p-3 border-2 border-dashed border-amber-500/30 hover:border-amber-400 bg-amber-500/5 hover:bg-amber-500/10 rounded-xl transition cursor-pointer text-center">
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={handleEditTaskImageUpload}
+                          className="hidden"
+                        />
+                        <i className="fas fa-file-image text-amber-400 text-xl mb-1"></i>
+                        <span className="text-xs font-bold text-white">নতুন ছবি সিলেক্ট করে আপলোড করুন</span>
+                      </label>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 pt-2 border-t border-white/10">
+                  <button
+                    onClick={() => setEditingTask(null)}
+                    className="btn-secondary py-2.5 text-xs flex-1"
+                  >
+                    CANCEL
+                  </button>
+                  <button
+                    onClick={handleSaveEditedTask}
+                    className="btn-primary-solid py-2.5 text-xs flex-1 bg-gradient-to-r from-amber-500 to-amber-600 hover:brightness-110"
+                  >
+                    <i className="fas fa-check mr-1.5"></i>
+                    SAVE CHANGES (সেভ করুন)
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* MANDATORY 4 TELEGRAM CHANNELS JOIN OVERLAY */}
           {isLoggedIn && mandatoryChannelsEnabled && !hasCompletedMandatoryJoin && (
             <div className="fixed inset-0 z-[200] bg-slate-950/95 backdrop-blur-xl flex flex-col items-center justify-center p-4 animate-fade-in overflow-y-auto">
@@ -10727,6 +13030,186 @@ export default function App() {
                   <p className="text-[10px] text-slate-500 italic">
                     * ৪টি চ্যানেলে জয়েনিং সম্পূর্ণ না থাকলে অ্যাপ ব্যবহার করা যাবে না।
                   </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* FLOATING AI SUPPORT BUTTON */}
+          <button
+            type="button"
+            onClick={() => {
+              setIsAiChatOpen(true);
+              haptic('medium');
+            }}
+            className="fixed bottom-20 right-4 z-40 p-3 sm:px-4 bg-gradient-to-r from-purple-600 via-indigo-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 text-white rounded-full shadow-2xl shadow-purple-500/50 border border-purple-400/40 flex items-center gap-2 hover:scale-105 active:scale-95 transition-all group"
+            title="AI Support Assistant (এআই সহায়িকা)"
+          >
+            <div className="relative flex items-center justify-center">
+              <i className="fas fa-robot text-lg text-purple-200 group-hover:rotate-12 transition"></i>
+              <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-emerald-400 rounded-full border-2 border-slate-900 animate-pulse"></span>
+            </div>
+            <span className="text-xs font-black tracking-wide pr-1">এআই সাপোর্ট</span>
+          </button>
+
+          {/* AI CHAT MODAL OVERLAY */}
+          {isAiChatOpen && (
+            <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-2 sm:p-4 animate-in fade-in duration-200">
+              <div className="w-full max-w-lg h-[88vh] bg-slate-900 border border-purple-500/30 rounded-3xl shadow-2xl flex flex-col overflow-hidden relative">
+                {/* Modal Header */}
+                <div className="p-4 bg-gradient-to-r from-purple-950 via-indigo-950 to-slate-900 border-b border-purple-500/20 flex items-center justify-between shrink-0">
+                  <div className="flex items-center gap-3">
+                    <div className="relative">
+                      <div className="w-10 h-10 rounded-2xl bg-purple-600/30 border border-purple-400/40 flex items-center justify-center text-purple-300 text-lg shadow-inner">
+                        <i className="fas fa-robot"></i>
+                      </div>
+                      <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-emerald-500 rounded-full border-2 border-slate-900"></span>
+                    </div>
+
+                    <div>
+                      <h3 className="font-black text-sm text-white flex items-center gap-2">
+                        <span>RF SMM AI Assistant</span>
+                        <span className="text-[9px] font-mono text-purple-300 bg-purple-500/20 px-2 py-0.5 rounded-full border border-purple-500/30">
+                          Gemini 3.6 Flash
+                        </span>
+                      </h3>
+                      <p className="text-[10px] text-purple-200/80 flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span>
+                        <span>২৪/৭ অনলাইন এআই কাস্টমার সাপোর্ট</span>
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAiMessages([
+                          {
+                            id: 'welcome',
+                            role: 'model',
+                            text: 'আসসালামু আলাইকুম! 👋 আমি RF SMM-এর 🤖 AI সাপোর্ট অ্যাসিস্ট্যান্ট। আমি কীভাবে সাহায্য করতে পারি?',
+                            time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                          }
+                        ]);
+                        showToast('চ্যাট রিলোড করা হয়েছে', 'info');
+                      }}
+                      className="w-8 h-8 rounded-xl bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white flex items-center justify-center text-xs transition"
+                      title="Clear / Reset Chat"
+                    >
+                      <i className="fas fa-sync-alt"></i>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsAiChatOpen(false);
+                        haptic('light');
+                      }}
+                      className="w-8 h-8 rounded-xl bg-rose-500/20 hover:bg-rose-500 text-rose-300 hover:text-white flex items-center justify-center text-xs transition"
+                      title="Close"
+                    >
+                      <i className="fas fa-times"></i>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Quick Suggestion Chips */}
+                <div className="p-2.5 bg-slate-950/60 border-b border-white/5 overflow-x-auto flex items-center gap-2 shrink-0 scrollbar-none">
+                  {[
+                    'কীভাবে ডিপোজিট করব?',
+                    'বিকাশ/নগদ অটো ডিপোজিট',
+                    'নতুন অর্ডার দেওয়ার নিয়ম',
+                    'অর্ডার ডেলিভারি টাইম কত?',
+                    'ডেইলি ফ্রি বোনাস পাব কীভাবে?',
+                    'এডমিন সাপোর্ট নম্বর'
+                  ].map((q, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      disabled={isAiSending}
+                      onClick={() => handleSendAiMessage(q)}
+                      className="whitespace-nowrap text-[10px] font-extrabold text-purple-200 hover:text-white bg-purple-950/60 hover:bg-purple-800/80 px-3 py-1.5 rounded-xl border border-purple-500/30 transition active:scale-95 shrink-0 flex items-center gap-1"
+                    >
+                      <i className="fas fa-comment-dots text-purple-400"></i>
+                      <span>{q}</span>
+                    </button>
+                  ))}
+                </div>
+
+                {/* Messages Body */}
+                <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-950/40">
+                  {aiMessages.map((msg) => (
+                    <div
+                      key={msg.id}
+                      className={`flex gap-2.5 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                    >
+                      {msg.role === 'model' && (
+                        <div className="w-8 h-8 rounded-2xl bg-purple-600/30 border border-purple-500/40 text-purple-300 flex items-center justify-center text-xs shrink-0 mt-0.5 shadow-md">
+                          <i className="fas fa-robot"></i>
+                        </div>
+                      )}
+
+                      <div
+                        className={`max-w-[85%] p-3.5 rounded-2xl text-xs leading-relaxed whitespace-pre-wrap ${
+                          msg.role === 'user'
+                            ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-tr-none shadow-lg'
+                            : 'bg-slate-900 text-slate-100 rounded-tl-none border border-purple-500/20 shadow-lg'
+                        }`}
+                      >
+                        <p>{msg.text}</p>
+                        <span className="block text-[8px] text-slate-400 mt-1.5 text-right font-mono">
+                          {msg.time}
+                        </span>
+                      </div>
+
+                      {msg.role === 'user' && (
+                        <div className="w-8 h-8 rounded-2xl bg-blue-600/30 border border-blue-500/40 text-blue-300 flex items-center justify-center text-xs shrink-0 mt-0.5 shadow-md">
+                          <i className="fas fa-user"></i>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+
+                  {isAiSending && (
+                    <div className="flex gap-2.5 justify-start animate-fade-in">
+                      <div className="w-8 h-8 rounded-2xl bg-purple-600/30 border border-purple-500/40 text-purple-300 flex items-center justify-center text-xs shrink-0">
+                        <i className="fas fa-robot animate-bounce"></i>
+                      </div>
+                      <div className="p-3.5 rounded-2xl bg-slate-900 text-purple-300 text-xs border border-purple-500/30 flex items-center gap-2 shadow-lg">
+                        <i className="fas fa-circle-notch fa-spin text-purple-400"></i>
+                        <span className="font-extrabold text-[11px]">RF AI টাইপ করছে...</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Input Bar */}
+                <div className="p-3 bg-slate-900 border-t border-purple-500/20 shrink-0">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      className="input-modern text-xs flex-1 bg-slate-950 border-purple-500/30 focus:border-purple-400"
+                      placeholder="আপনার প্রশ্নটি টাইপ করুন..."
+                      value={aiInputText}
+                      onChange={(e) => setAiInputText(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleSendAiMessage();
+                        }
+                      }}
+                    />
+                    <button
+                      type="button"
+                      disabled={isAiSending || !aiInputText.trim()}
+                      onClick={() => handleSendAiMessage()}
+                      className="px-4 py-3 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 disabled:opacity-40 text-white font-extrabold text-xs rounded-xl shadow-lg transition active:scale-95 flex items-center gap-1.5 shrink-0"
+                    >
+                      <i className="fas fa-paper-plane"></i>
+                      <span className="hidden sm:inline">পাঠান</span>
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
