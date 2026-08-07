@@ -456,8 +456,7 @@ export default function App() {
       currentUser.email?.toLowerCase() === 'rashaltechworld@gmail.com' ||
       currentUser.email?.toLowerCase().includes('rashal') ||
       currentUser.email?.toLowerCase().includes('admin') ||
-      currentUser.role === 'admin' ||
-      true // Enable admin panel button for easy access
+      currentUser.role === 'admin'
     )
   );
 
