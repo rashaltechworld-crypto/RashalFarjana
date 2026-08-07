@@ -11,6 +11,33 @@ const PORT = 3000;
 
 app.use(express.json({ limit: "10mb" }));
 
+// Helper for offline smart fallback response when API key is missing or quota/network error occurs
+function getSmartFallbackReply(prompt: string, customKnowledge?: string): string {
+  const p = prompt.toLowerCase();
+  
+  if (p.includes("ডিপোজিট") || p.includes("deposit") || p.includes("টাকা") || p.includes("bkash") || p.includes("bKash") || p.includes("বিকাশ") || p.includes("নগদ") || p.includes("nagad") || p.includes("binance") || p.includes("usdt")) {
+    return "💳 **ডিপোজিট নির্দেশিকা:**\n- বিকাশ, নগদ বা রকেটে অটো ডিপোজিট করতে 'Deposit' মেনুতে যান।\n- আপনার পছন্দমতো পেমেন্ট নম্বর নির্বাচন করে টাকা পাঠানোর পর সঠিক TrxID (ট্রানজেকশন আইডি) এবং টাকার পরিমাণ বসিয়ে 'Verify Deposit'-এ ক্লিক করুন।\n- বাইন্যান্স পে বা USDT BEP20-এ ১ ডলার = ১২০ টাকা হারে অটো টাকা যোগ হবে।";
+  }
+
+  if (p.includes("অর্ডার") || p.includes("order") || p.includes("ফলোয়ার") || p.includes("follower") || p.includes("লাইক") || p.includes("like") || p.includes("ভিউ") || p.includes("view") || p.includes("সার্ভিস")) {
+    return "🚀 **নতুন অর্ডার দেওয়ার নিয়ম:**\n১. 'New Order' পেজে যান।\n২. আপনার প্রয়োজনীয় ক্যাটাগরি ও সার্ভিস সিলেক্ট করুন।\n৩. টার্গেট লিঙ্ক (যেমন: পেজ/প্রোফাইল/ভিডিও লিঙ্ক) পেস্ট করুন।\n৪. কোয়ান্টিটি (পরিমাণ) বসিয়ে 'Submit Order'-এ ক্লিক করুন।\n৫. অর্ডারের আপডেট দেখতে 'Orders' মেনুতে ক্লিক করুন।";
+  }
+
+  if (p.includes("বোনাস") || p.includes("bonus") || p.includes("স্পিন") || p.includes("spin") || p.includes("ফ্রি") || p.includes("free") || p.includes("পয়েন্ট")) {
+    return "🎁 **ফ্রি বোনাস ও রিওয়ার্ডস:**\n- 'Daily Check-in' থেকে প্রতিদিন বোনাস সংগ্রহ করুন।\n- 'Ad Earn' ভিডিও দেখে আয় করুন।\n- 'Spin Wheel' স্পিন করে ভাগ্য পরীক্ষা করুন।";
+  }
+
+  if (p.includes("এডমিন") || p.includes("admin") || p.includes("সাপোর্ট") || p.includes("support") || p.includes("কন্টাক্ট") || p.includes("contact") || p.includes("হেল্প") || p.includes("help") || p.includes("হোয়াটসঅ্যাপ") || p.includes("টেলিগ্রাম")) {
+    return "📞 **অফিসিয়াল কন্টাক্ট ও সাপোর্ট:**\n- টেলিগ্রাম চ্যানেল: t.me/RF2_SMM\n- হোয়াটসঅ্যাপ সাপোর্ট: wa.me/8801781119650\n- যেকোনো জরুরি প্রয়োজনে সরাসরি টেলিগ্রামে মেসেজ দিন।";
+  }
+
+  if (customKnowledge && customKnowledge.trim().length > 0) {
+    return `🤖 **RF SMM Assistant:**\n${customKnowledge}\n\nযেকোনো সাহায্যের জন্য 'Deposit' বা 'New Order' অপশন ব্যবহার করুন অথবা সরাসরি এডমিন সাপোর্টে যোগ দিন।`;
+  }
+
+  return "🤖 **আসসালামু আলাইকুম! RF SMM-এ আপনাকে স্বাগতম।**\nআমি আপনার প্রশ্নের উত্তর দিতে প্রস্তুত। আপনি ডিপোজিট, নতুন অর্ডার করা, ফ্রি বোনাস অথবা সাপোর্টের বিষয়ে প্রশ্ন করতে পারেন।";
+}
+
 // Initialize GoogleGenAI client
 const getAiClient = () => {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -27,21 +54,22 @@ const getAiClient = () => {
 
 // AI Support API endpoint
 app.post("/api/ai-support", async (req, res) => {
-  try {
-    const { prompt, history, customKnowledge, userContext } = req.body;
+  const { prompt, history, customKnowledge, userContext, attachments } = req.body || {};
 
-    if (!prompt || typeof prompt !== "string") {
-      return res.status(400).json({ error: "Prompt is required" });
-    }
+  if ((!prompt || typeof prompt !== "string") && (!attachments || attachments.length === 0)) {
+    return res.status(400).json({ error: "Prompt or attachment is required" });
+  }
 
-    const ai = getAiClient();
-    if (!ai) {
-      return res.json({
-        reply: "⚠️ AI সাপোর্ট সার্ভিসটি সাময়িকভাবে বন্ধ আছে অথবা GEMINI_API_KEY সেট করা নেই। দয়া করে এডমিন অথবা সরাসরি হোয়াটসঅ্যাপ সাপোর্টে যোগাযোগ করুন।"
-      });
-    }
+  const userPromptText = prompt || "আটাচড ছবি/ভিডিওটি দেখুন এবং সাহায্য করুন।";
 
-    const defaultInstruction = `You are "RF SMM Assistant" (আরএফ এসএমএম অ্যাসিস্ট্যান্ট), an intelligent, polite, and helpful AI Customer Support Agent for "RF SMM Panel BD" (Bangladesh's leading SMM Panel).
+  const ai = getAiClient();
+  if (!ai) {
+    // Return smart fallback reply seamlessly
+    const reply = getSmartFallbackReply(userPromptText, customKnowledge);
+    return res.json({ reply });
+  }
+
+  const defaultInstruction = `You are "RF SMM Assistant" (আরএফ এসএমএম অ্যাসিস্ট্যান্ট), an intelligent, polite, and helpful AI Customer Support Agent for "RF SMM Panel BD" (Bangladesh's leading SMM Panel).
 Key Instructions:
 1. Always reply in clear, friendly Bengali (বাংলা) or simple English if the user asks in English.
 2. Maintain a professional, welcoming tone. Use emojis naturally (e.g. 🤖, 🚀, 💎, 📱, 💳, ✅).
@@ -59,40 +87,68 @@ Key Instructions:
    - Paste Target Link (যেমন পেজ/প্রোফাইল লিংক)
    - Enter Quantity (পরিমাণ)
    - Click "Submit Order" (অর্ডার জমা দিন)
-6. If users ask about deposit issues, explain that they should enter their exact TrxID (ট্রানজেকশন আইডি) and Amount in the Deposit page for instant approval.
+6. If users ask about deposit issues or upload payment screenshots/videos, inspect the attachment if available and instruct them to enter the exact TrxID and Amount in the Deposit page for instant verification.
 7. Keep responses concise, clear, and easy to read with bullet points where appropriate.
 ${customKnowledge ? `\n\nAdmin Custom Instructions & Knowledge Base:\n${customKnowledge}` : ""}
 ${userContext ? `\n\nUser Context:\nName: ${userContext.name || "Customer"}\nBalance: ৳${userContext.balance || 0}\nTotal Orders: ${userContext.totalOrders || 0}` : ""}`;
 
-    // Format chat contents
-    let contents: any[] = [];
-    if (Array.isArray(history) && history.length > 0) {
-      // Map previous turns if provided
-      contents = history.slice(-6).map((msg: { role: string; text: string }) => ({
-        role: msg.role === "user" ? "user" : "model",
-        parts: [{ text: msg.text }]
-      }));
-    }
-    contents.push({ role: "user", parts: [{ text: prompt }] });
-
-    const response = await ai.models.generateContent({
-      model: "gemini-3.6-flash",
-      contents,
-      config: {
-        systemInstruction: defaultInstruction,
-        temperature: 0.7,
-      }
-    });
-
-    const reply = response.text || "দুঃখিত, কোনো উত্তর পাওয়া যায়নি। আবার চেষ্টা করুন।";
-    return res.json({ reply });
-  } catch (err: any) {
-    console.error("Gemini API Error:", err);
-    return res.status(500).json({
-      error: err.message || "Failed to generate AI response",
-      reply: "⚠️ এআই সাপোর্ট উত্তর তৈরি করতে সমস্যা হয়েছে। দয়া করে কিছুক্ষণ পর আবার চেষ্টা করুন।"
-    });
+  // Format chat contents
+  let contents: any[] = [];
+  if (Array.isArray(history) && history.length > 0) {
+    contents = history.slice(-6).map((msg: { role: string; text: string }) => ({
+      role: msg.role === "user" ? "user" : "model",
+      parts: [{ text: msg.text }]
+    }));
   }
+
+  const userParts: any[] = [{ text: userPromptText }];
+
+  if (Array.isArray(attachments) && attachments.length > 0) {
+    for (const att of attachments) {
+      if (att.data && att.mimeType) {
+        // extract raw base64 if prefixed
+        const base64Clean = att.data.includes(",") ? att.data.split(",")[1] : att.data;
+        userParts.push({
+          inlineData: {
+            mimeType: att.mimeType,
+            data: base64Clean
+          }
+        });
+      }
+    }
+  }
+
+  contents.push({ role: "user", parts: userParts });
+
+  // Try list of candidate models
+  const candidateModels = ["gemini-3.6-flash", "gemini-2.5-flash", "gemini-1.5-flash", "gemini-2.0-flash"];
+
+  try {
+    for (const modelName of candidateModels) {
+      try {
+        const response = await ai.models.generateContent({
+          model: modelName,
+          contents,
+          config: {
+            systemInstruction: defaultInstruction,
+            temperature: 0.7,
+          }
+        });
+
+        if (response && response.text) {
+          return res.json({ reply: response.text });
+        }
+      } catch (err: any) {
+        console.warn(`Model ${modelName} call failed:`, err?.message || err);
+      }
+    }
+  } catch (outerErr) {
+    console.warn("AI Support endpoint outer catch:", outerErr);
+  }
+
+  // If all models fail (e.g. quota limit, network or rate limit), provide instant smart offline fallback
+  const fallbackReply = getSmartFallbackReply(userPromptText, customKnowledge);
+  return res.json({ reply: fallbackReply });
 });
 
 // Health check route

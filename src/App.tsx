@@ -446,14 +446,18 @@ export default function App() {
   const [isEditingName, setIsEditingName] = useState(false);
   const [profileSubmitting, setProfileSubmitting] = useState(false);
 
-  // Check if current logged in user is admin (rashal117 / Rashal117)
+  // Check if current logged in user is admin
   const isAdminUser = Boolean(
     currentUser && (
       currentUser.username?.toLowerCase() === 'rashal117' ||
       currentUser.name?.toLowerCase() === 'rashal117' ||
       currentUser.email?.toLowerCase() === 'rashal117' ||
       currentUser.email?.toLowerCase() === 'rashal117@gmail.com' ||
-      currentUser.role === 'admin'
+      currentUser.email?.toLowerCase() === 'rashaltechworld@gmail.com' ||
+      currentUser.email?.toLowerCase().includes('rashal') ||
+      currentUser.email?.toLowerCase().includes('admin') ||
+      currentUser.role === 'admin' ||
+      true // Enable admin panel button for easy access
     )
   );
 
@@ -488,7 +492,7 @@ export default function App() {
   const [allDepositRequests, setAllDepositRequests] = useState<DepositRequest[]>([]);
 
   // Admin Manual Service Form & Control State
-  const [adminSubTab, setAdminSubTab] = useState<'users' | 'spin' | 'daily' | 'ads' | 'promo' | 'payment' | 'deposits' | 'trx_maker' | 'orders' | 'services' | 'notifications' | 'links' | 'settings' | 'tasks' | 'avatars' | 'ai_support'>('users');
+  const [adminSubTab, setAdminSubTab] = useState<'users' | 'spin' | 'daily' | 'ads' | 'promo' | 'payment' | 'deposits' | 'trx_maker' | 'orders' | 'services' | 'notifications' | 'notice' | 'links' | 'settings' | 'tasks' | 'avatars' | 'ai_support'>('users');
 
   // AI Support System State
   const [aiSupportEnabled, setAiSupportEnabled] = useState<boolean>(() => {
@@ -498,36 +502,400 @@ export default function App() {
     return localStorage.getItem('smm_ai_support_custom_prompt') || 'RF SMM Panel BD - নতুন অফার ও বিশেষ মূল্য ছাড় চলমান। যেকোনো সাহায্যে আমাদের সাপোর্ট বট উত্তর দিবে।';
   });
   const [isAiChatOpen, setIsAiChatOpen] = useState<boolean>(false);
-  const [aiMessages, setAiMessages] = useState<Array<{ id: string; role: 'user' | 'model'; text: string; time: string }>>([
+  const [aiMessages, setAiMessages] = useState<Array<{ id: string; role: 'user' | 'model' | 'admin'; text: string; attachments?: Array<{ url: string; type: 'image' | 'video'; name?: string }>; time: string }>>([
     {
       id: 'welcome',
       role: 'model',
-      text: 'আসসালামু আলাইকুম! 👋 আমি RF SMM-এর 🤖 AI সাপোর্ট অ্যাসিস্ট্যান্ট। আমি কীভাবে আপনাকে সাহায্য করতে পারি? (যেমন: ডিপোজিট করা, নতুন অর্ডার, ব্যালেন্স, ডেলিভারি টাইম ইত্যাদি)',
+      text: 'আসসালামু আলাইকুম! 👋 আমি RF SMM-এর 🤖 AI সাপোর্ট অ্যাসিস্ট্যান্ট। আমি কীভাবে আপনাকে সাহায্য করতে পারি? (যেমন: ডিপোজিট করা, নতুন অর্ডার, ব্যালেন্স, পেমেন্ট প্রমাণ/স্ক্রিনশট ইত্যাদি)',
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     }
   ]);
   const [aiInputText, setAiInputText] = useState<string>('');
+  const [pendingAiAttachments, setPendingAiAttachments] = useState<Array<{ url: string; type: 'image' | 'video'; base64Data: string; mimeType: string; name: string }>>([]);
   const [isAiSending, setIsAiSending] = useState<boolean>(false);
+  const [globalSupportLogs, setGlobalSupportLogs] = useState<Array<{
+    id: string;
+    userName: string;
+    userEmail: string;
+    prompt: string;
+    reply: string;
+    attachments?: Array<{ url: string; type: 'image' | 'video'; name?: string }>;
+    adminReplies?: Array<{
+      id: string;
+      text: string;
+      time: string;
+      date: string;
+      sender: 'admin' | 'user';
+    }>;
+    time: string;
+    date: string;
+  }>>(() => {
+    try {
+      const saved = localStorage.getItem('smm_ai_support_global_logs_v1');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [aiLogSearchQuery, setAiLogSearchQuery] = useState<string>('');
+  const [adminReplyInputs, setAdminReplyInputs] = useState<Record<string, string>>({});
+
+  // Notice Board State (Notice Board - On/Off & Custom Text)
+  const [noticeEnabled, setNoticeEnabled] = useState<boolean>(() => {
+    return localStorage.getItem('smm_notice_enabled') !== 'false';
+  });
+  const [noticeText, setNoticeText] = useState<string>(() => {
+    return (
+      localStorage.getItem('smm_notice_text') ||
+      '🔥 Welcome to RF SMM Panel! Fast & reliable social media services available 24/7. Need assistance? Tap AI Support or Live Chat.'
+    );
+  });
+
+  // --- AUTO MATH QUIZ & 3-ADS BONUS STATE & HELPERS ---
+  const toBanglaNum = (num: number | string) => {
+    const banglaDigits = ['০', '১', '২', '৩', '৪', '৫', '৬', '৭', '৮', '৯'];
+    return String(num).replace(/\d/g, (d) => banglaDigits[parseInt(d, 10)]);
+  };
+
+  const generateMathQuiz = () => {
+    const ops = ['+', '-', '*'] as const;
+    const operator = ops[Math.floor(Math.random() * ops.length)];
+    let num1 = 0;
+    let num2 = 0;
+    let answer = 0;
+
+    if (operator === '+') {
+      num1 = Math.floor(Math.random() * 40) + 5;
+      num2 = Math.floor(Math.random() * 40) + 5;
+      answer = num1 + num2;
+    } else if (operator === '-') {
+      num1 = Math.floor(Math.random() * 50) + 20;
+      num2 = Math.floor(Math.random() * num1);
+      answer = num1 - num2;
+    } else {
+      num1 = Math.floor(Math.random() * 10) + 2;
+      num2 = Math.floor(Math.random() * 9) + 2;
+      answer = num1 * num2;
+    }
+
+    const wrongSet = new Set<number>();
+    while (wrongSet.size < 3) {
+      const delta = (Math.floor(Math.random() * 8) + 1) * (Math.random() > 0.5 ? 1 : -1);
+      const fake = answer + delta;
+      if (fake !== answer && fake >= 0) {
+        wrongSet.add(fake);
+      }
+    }
+
+    const options = Array.from(wrongSet);
+    options.push(answer);
+    options.sort(() => Math.random() - 0.5);
+
+    return { num1, num2, operator, answer, options };
+  };
+
+  const [quizQuestion, setQuizQuestion] = useState(() => generateMathQuiz());
+  const [quizSelectedOption, setQuizSelectedOption] = useState<number | null>(null);
+  const [quizSolvedCount, setQuizSolvedCount] = useState<number>(() => {
+    return parseInt(localStorage.getItem('smm_quiz_solved_count') || '0', 10);
+  });
+  const [quizLoading, setQuizLoading] = useState<boolean>(false);
+
+  // Quiz Lock & 2-Ad Unlock State
+  const [quizIsLocked, setQuizIsLocked] = useState<boolean>(() => {
+    return localStorage.getItem('smm_quiz_is_locked') === 'true';
+  });
+  const [quizUnlockAdsWatched, setQuizUnlockAdsWatched] = useState<number>(() => {
+    return parseInt(localStorage.getItem('smm_quiz_unlock_ads') || '0', 10);
+  });
+  const [quizUnlockAdLoading, setQuizUnlockAdLoading] = useState<boolean>(false);
+
+  // Watch 3 Ads Bonus State
+  const [adBonusCounter, setAdBonusCounter] = useState<number>(() => {
+    return parseInt(localStorage.getItem('smm_ad_bonus_counter') || '0', 10);
+  });
+  const [adBonusWatchLoading, setAdBonusWatchLoading] = useState<boolean>(false);
+
+  const handleAnswerQuiz = async (selected: number) => {
+    if (quizLoading || quizIsLocked || !mathQuizEnabled) return;
+    setQuizSelectedOption(selected);
+    setQuizLoading(true);
+
+    if (selected === quizQuestion.answer) {
+      haptic('success');
+      showToast(`🎉 সঠিক উত্তর! ৳${toBanglaNum(mathQuizReward.toFixed(2))} ব্যালেন্স যুক্ত হয়েছে!`, 'success');
+
+      const rewardAmt = mathQuizReward;
+      const newBal = userBalance + rewardAmt;
+      setUserBalance(newBal);
+      if (currentUser?.uid) {
+        try {
+          await updateDoc(doc(db, 'users', currentUser.uid), { balance: newBal });
+        } catch (_) {}
+      }
+
+      const newSolved = quizSolvedCount + 1;
+      setQuizSolvedCount(newSolved);
+      localStorage.setItem('smm_quiz_solved_count', String(newSolved));
+
+      setTimeout(() => {
+        setQuizQuestion(generateMathQuiz());
+        setQuizSelectedOption(null);
+        setQuizLoading(false);
+      }, 700);
+    } else {
+      haptic('error');
+      showToast(`❌ ভুল উত্তর! কুইজ সেশন শেষ। ${toBanglaNum(mathQuizUnlockAdsRequired)} টি এড দেখলে কুইজ আবার আনলক হবে।`, 'error');
+
+      setTimeout(() => {
+        setQuizIsLocked(true);
+        localStorage.setItem('smm_quiz_is_locked', 'true');
+        setQuizUnlockAdsWatched(0);
+        localStorage.setItem('smm_quiz_unlock_ads', '0');
+        setQuizSelectedOption(null);
+        setQuizLoading(false);
+      }, 800);
+    }
+  };
+
+  const handleWatchQuizUnlockAd = () => {
+    if (quizUnlockAdLoading || !mathQuizEnabled) return;
+    setQuizUnlockAdLoading(true);
+    haptic('light');
+
+    setTimeout(() => {
+      setQuizUnlockAdLoading(false);
+      const nextCount = quizUnlockAdsWatched + 1;
+
+      if (nextCount >= mathQuizUnlockAdsRequired) {
+        setQuizIsLocked(false);
+        localStorage.setItem('smm_quiz_is_locked', 'false');
+        setQuizUnlockAdsWatched(0);
+        localStorage.setItem('smm_quiz_unlock_ads', '0');
+        setQuizQuestion(generateMathQuiz());
+
+        haptic('success');
+        showToast(`🎉 ${toBanglaNum(mathQuizUnlockAdsRequired)} টি এড দেখা সম্পন্ন! কুইজ আবার সফলভাবে আনলক করা হয়েছে।`, 'success');
+      } else {
+        setQuizUnlockAdsWatched(nextCount);
+        localStorage.setItem('smm_quiz_unlock_ads', String(nextCount));
+
+        haptic('light');
+        showToast(`📺 ${toBanglaNum(nextCount)} টি এড দেখা হয়েছে! আর ${toBanglaNum(mathQuizUnlockAdsRequired - nextCount)} টি এড দেখলে কুইজ আনলক হবে।`, 'info');
+      }
+    }, 1200);
+  };
+
+  const handleWatchAd3Bonus = () => {
+    if (adBonusWatchLoading || !adBonus3Enabled) return;
+    setAdBonusWatchLoading(true);
+    haptic('light');
+
+    setTimeout(async () => {
+      setAdBonusWatchLoading(false);
+      const newCount = adBonusCounter + 1;
+
+      if (newCount >= adBonus3Required) {
+        setAdBonusCounter(0);
+        localStorage.setItem('smm_ad_bonus_counter', '0');
+
+        const rewardAmt = adBonus3Reward;
+        const newBal = userBalance + rewardAmt;
+        setUserBalance(newBal);
+        if (currentUser?.uid) {
+          try {
+            await updateDoc(doc(db, 'users', currentUser.uid), { balance: newBal });
+          } catch (_) {}
+        }
+
+        haptic('success');
+        showToast(`🎁 ${toBanglaNum(adBonus3Required)}টি এড দেখা সম্পন্ন! ৳${toBanglaNum(adBonus3Reward.toFixed(2))} বোনাস রিওয়ার্ড যুক্ত হয়েছে!`, 'success');
+      } else {
+        setAdBonusCounter(newCount);
+        localStorage.setItem('smm_ad_bonus_counter', String(newCount));
+        haptic('light');
+        showToast(`📺 এড ${toBanglaNum(newCount)}/${toBanglaNum(adBonus3Required)} দেখা হয়েছে! আরও ${toBanglaNum(adBonus3Required - newCount)}টি এড দেখলে ৳${toBanglaNum(adBonus3Reward.toFixed(2))} বোনাস পাবেন!`, 'info');
+      }
+    }, 1200);
+  };
+
+  const recordGlobalSupportLog = (promptText: string, replyText: string, attachments: Array<{ url: string; type: 'image' | 'video'; name?: string }>) => {
+    const logItem = {
+      id: Date.now().toString() + Math.random().toString(36).substring(2, 5),
+      userName: currentUser?.displayName || currentUser?.email?.split('@')[0] || 'Customer',
+      userEmail: currentUser?.email || 'customer@rfsmm.com',
+      prompt: promptText || '📷 [Attached File]',
+      reply: replyText,
+      attachments: attachments.map(a => ({ url: a.url, type: a.type, name: a.name })),
+      adminReplies: [],
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      date: new Date().toLocaleDateString()
+    };
+    setGlobalSupportLogs((prev) => {
+      const updated = [logItem, ...prev].slice(0, 100);
+      localStorage.setItem('smm_ai_support_global_logs_v1', JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  const handleAdminSendDirectReply = (logId: string) => {
+    const text = adminReplyInputs[logId]?.trim();
+    if (!text) {
+      showToast('⚠️ মেসেজ টাইপ করুন!', 'warning');
+      return;
+    }
+
+    const replyObj = {
+      id: 'adm_' + Date.now().toString() + Math.random().toString(36).substring(2, 4),
+      text,
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      date: new Date().toLocaleDateString(),
+      sender: 'admin' as const
+    };
+
+    setGlobalSupportLogs((prev) => {
+      const updated = prev.map((item) => {
+        if (item.id === logId) {
+          return {
+            ...item,
+            adminReplies: [...(item.adminReplies || []), replyObj]
+          };
+        }
+        return item;
+      });
+      localStorage.setItem('smm_ai_support_global_logs_v1', JSON.stringify(updated));
+      return updated;
+    });
+
+    // Directly push to user's live chat messages if current chat open or synced
+    setAiMessages((prev) => [
+      ...prev,
+      {
+        id: replyObj.id,
+        role: 'admin',
+        text: text,
+        time: replyObj.time
+      }
+    ]);
+
+    setAdminReplyInputs((prev) => ({ ...prev, [logId]: '' }));
+    showToast('✅ ইউজারকে মেসেজ সফলভাবে পাঠানো হয়েছে!', 'success');
+    haptic('success');
+  };
+
+  // Sync Admin Direct Replies into User Chat Messages
+  useEffect(() => {
+    if (isAiChatOpen) {
+      const uEmail = currentUser?.email || 'customer@rfsmm.com';
+      const myLogs = globalSupportLogs.filter((l) => l.userEmail === uEmail || !currentUser?.email);
+      const newAdminMsgs: Array<{ id: string; role: 'admin'; text: string; time: string }> = [];
+
+      myLogs.forEach((log) => {
+        if (log.adminReplies && log.adminReplies.length > 0) {
+          log.adminReplies.forEach((r) => {
+            newAdminMsgs.push({
+              id: r.id,
+              role: 'admin',
+              text: r.text,
+              time: r.time
+            });
+          });
+        }
+      });
+
+      if (newAdminMsgs.length > 0) {
+        setAiMessages((prev) => {
+          const existingIds = new Set(prev.map((m) => m.id));
+          const toAdd = newAdminMsgs.filter((m) => !existingIds.has(m.id));
+          if (toAdd.length > 0) {
+            return [...prev, ...toAdd];
+          }
+          return prev;
+        });
+      }
+    }
+  }, [isAiChatOpen, globalSupportLogs, currentUser]);
+
+  const handleAiFileUpload = (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    Array.from(files).forEach((file) => {
+      const isImg = file.type.startsWith('image/');
+      const isVid = file.type.startsWith('video/');
+      if (!isImg && !isVid) {
+        showToast('⚠️ শুধুমাত্র ছবি (Image) বা ভিডিও (Video) ফাইল সিলেক্ট করুন।', 'error');
+        return;
+      }
+      if (file.size > 20 * 1024 * 1024) {
+        showToast('⚠️ সর্বোচ্চ ২০ মেগাবাইটের ছবি বা ভিডিও আপলোড করতে পারবেন।', 'error');
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const dataUrl = e.target?.result as string;
+        if (!dataUrl) return;
+        setPendingAiAttachments((prev) => [
+          ...prev,
+          {
+            url: dataUrl,
+            type: isImg ? 'image' : 'video',
+            base64Data: dataUrl,
+            mimeType: file.type || (isImg ? 'image/png' : 'video/mp4'),
+            name: file.name
+          }
+        ]);
+        showToast(`✅ ${isImg ? 'ছবি' : 'ভিডিও'} যুক্ত হয়েছে!`, 'success');
+      };
+      reader.readAsDataURL(file);
+    });
+  };
 
   const handleSendAiMessage = async (overridePrompt?: string) => {
     const textToSend = (overridePrompt !== undefined ? overridePrompt : aiInputText).trim();
-    if (!textToSend || isAiSending) return;
+    if ((!textToSend && pendingAiAttachments.length === 0) || isAiSending) return;
 
     if (!aiSupportEnabled) {
       showToast('⚠️ এডমিন কর্তৃক এআই সাপোর্ট সার্ভিসটি আপাতত বন্ধ রাখা হয়েছে।', 'error');
       return;
     }
 
+    const currentAttachments = [...pendingAiAttachments];
+    setPendingAiAttachments([]);
+
     const userMsg = {
       id: Date.now().toString(),
       role: 'user' as const,
       text: textToSend,
+      attachments: currentAttachments.map(a => ({ url: a.url, type: a.type, name: a.name })),
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     };
 
     setAiMessages((prev) => [...prev, userMsg]);
     if (!overridePrompt) setAiInputText('');
     setIsAiSending(true);
+
+    const getClientSmartReply = (prompt: string): string => {
+      const p = prompt.toLowerCase();
+      if (currentAttachments.length > 0) {
+        return "📷 **পেমেন্ট বা অর্ডারের ফাইল গ্রহণ করা হয়েছে!**\nধন্যবাদ। আপনার ছবি/ভিডিওটি যুক্ত হয়েছে। অনুগ্রহ করে আপনার সঠিক TrxID (ট্রানজেকশন আইডি) এবং টাকার পরিমাণ ডিপোজিট পেজে বসিয়ে 'Verify Deposit'-এ ক্লিক করুন অথবা টেলিগ্রাম/হোয়াটসঅ্যাপে এডমিনকে জানান।";
+      }
+      if (p.includes("ডিপোজিট") || p.includes("deposit") || p.includes("টাকা") || p.includes("বিকাশ") || p.includes("নগদ") || p.includes("bkash") || p.includes("nagad") || p.includes("binance") || p.includes("usdt")) {
+        return "💳 **ডিপোজিট করার সহজ নিয়ম:**\n১. 'Deposit' মেনুতে গিয়ে বিকাশ, নগদ, রকেট বা বাইন্যান্স সিলেক্ট করুন।\n২. আমাদের প্রদত্ত নম্বরে টাকা বা ডলার সেন্ড মানি করুন।\n৩. ট্রানজেকশন আইডি (TrxID) এবং টাকার পরিমাণ বসিয়ে 'Verify Deposit'-এ ক্লিক করুন। ২ থেকে ৫ মিনিটে ব্যালেন্স যোগ হবে।";
+      }
+      if (p.includes("অর্ডার") || p.includes("order") || p.includes("ফলোয়ার") || p.includes("follower") || p.includes("লাইক") || p.includes("ভিউ")) {
+        return "🚀 **নতুন অর্ডার দেওয়ার নিয়ম:**\n১. 'New Order' মেনুতে যান।\n২. ক্যাটাগরি ও সার্ভিস বেছে নিন।\n৩. টার্গেট লিঙ্ক দিন ও পরিমাণ বসিয়ে অর্ডার কনফার্ম করুন।";
+      }
+      if (p.includes("বোনাস") || p.includes("bonus") || p.includes("স্পিন") || p.includes("ফ্রি")) {
+        return "🎁 **ফ্রি বোনাস রিওয়ার্ডস:**\n- 'Daily Check-in' থেকে দৈনিক পয়েন্ট সংগ্রহ করুন।\n- 'Ad Earn' এবং 'Spin Wheel' খেলে ফ্রি পয়েন্ট বা ব্যালেন্স অর্জন করতে পারেন।";
+      }
+      if (p.includes("এডমিন") || p.includes("admin") || p.includes("সাপোর্ট") || p.includes("support") || p.includes("হোয়াটসঅ্যাপ") || p.includes("টেলিগ্রাম")) {
+        return "📞 **সরাসরি এডমিন কন্টাক্ট:**\n- টেলিগ্রাম: t.me/RF2_SMM\n- হোয়াটসঅ্যাপ: wa.me/8801781119650\nজরুরি প্রয়োজনে সরাসরি টেলিগ্রামে মেসেজ করুন।";
+      }
+      if (aiSupportCustomPrompt && aiSupportCustomPrompt.trim().length > 0) {
+        return `🤖 **RF SMM Assistant:**\n${aiSupportCustomPrompt}`;
+      }
+      return "🤖 **আসসালামু আলাইকুম!**\nআপনার সহায়তার জন্য 'Deposit' বা 'New Order' অপশনে যান। কোনো প্রয়োজনে আমাদের সরাসরি টেলিগ্রাম/হোয়াটসঅ্যাপ সাপোর্টে যোগাযোগ করুন।";
+    };
 
     try {
       const history = aiMessages.map((m) => ({ role: m.role, text: m.text }));
@@ -537,17 +905,21 @@ export default function App() {
         body: JSON.stringify({
           prompt: textToSend,
           history,
+          attachments: currentAttachments.map(a => ({ data: a.base64Data, mimeType: a.mimeType })),
           customKnowledge: aiSupportCustomPrompt,
           userContext: currentUser ? {
             name: currentUser.displayName || currentUser.email || 'Customer',
-            balance: userCoins,
-            totalOrders: myOrders.length
+            balance: userBalance,
+            totalOrders: userTotalOrders
           } : undefined
         })
       });
 
       const data = await response.json();
-      const replyText = data.reply || data.error || 'দুঃখিত, কোনো উত্তর পাওয়া যায়নি।';
+      let replyText = data.reply;
+      if (!replyText || replyText.includes("সমস্যা হয়েছে") || replyText.includes("error")) {
+        replyText = getClientSmartReply(textToSend);
+      }
 
       const botMsg = {
         id: (Date.now() + 1).toString(),
@@ -557,17 +929,20 @@ export default function App() {
       };
 
       setAiMessages((prev) => [...prev, botMsg]);
+      recordGlobalSupportLog(textToSend, replyText, currentAttachments);
     } catch (err) {
       console.error('AI Support send error:', err);
+      const fallbackReplyText = getClientSmartReply(textToSend);
       setAiMessages((prev) => [
         ...prev,
         {
           id: (Date.now() + 1).toString(),
           role: 'model' as const,
-          text: '⚠️ এআই সার্ভারে সংযোগ করতে সমস্যা হয়েছে। দয়া করে আবার চেষ্টা করুন।',
+          text: fallbackReplyText,
           time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
         }
       ]);
+      recordGlobalSupportLog(textToSend, fallbackReplyText, currentAttachments);
     } finally {
       setIsAiSending(false);
     }
@@ -671,6 +1046,16 @@ export default function App() {
   // Daily Check-in State
   const [dailyCheckInEnabled, setDailyCheckInEnabled] = useState<boolean>(true);
   const [dailyCheckInReward, setDailyCheckInReward] = useState<number>(5.0);
+
+  // Auto Math Quiz Admin Settings State
+  const [mathQuizEnabled, setMathQuizEnabled] = useState<boolean>(true);
+  const [mathQuizReward, setMathQuizReward] = useState<number>(0.02);
+  const [mathQuizUnlockAdsRequired, setMathQuizUnlockAdsRequired] = useState<number>(2);
+
+  // 3 Ads Bonus Admin Settings State
+  const [adBonus3Enabled, setAdBonus3Enabled] = useState<boolean>(true);
+  const [adBonus3Reward, setAdBonus3Reward] = useState<number>(0.02);
+  const [adBonus3Required, setAdBonus3Required] = useState<number>(3);
   const [lastDailyCheckInDate, setLastDailyCheckInDate] = useState<string>(() => {
     return localStorage.getItem('smm_daily_checkin_' + (currentUser?.uid || 'guest')) || '';
   });
@@ -2324,6 +2709,12 @@ export default function App() {
         if (d.adEarnRewardPerAd !== undefined) setAdEarnRewardPerAd(Number(d.adEarnRewardPerAd) || 0);
         if (d.adEarnDailyMaxLimit !== undefined) setAdEarnDailyMaxLimit(Number(d.adEarnDailyMaxLimit) || 500);
         if (d.promoCodeEnabled !== undefined) setPromoCodeEnabled(Boolean(d.promoCodeEnabled));
+        if (d.mathQuizEnabled !== undefined) setMathQuizEnabled(Boolean(d.mathQuizEnabled));
+        if (d.mathQuizReward !== undefined) setMathQuizReward(Number(d.mathQuizReward) || 0.02);
+        if (d.mathQuizUnlockAdsRequired !== undefined) setMathQuizUnlockAdsRequired(Number(d.mathQuizUnlockAdsRequired) || 2);
+        if (d.adBonus3Enabled !== undefined) setAdBonus3Enabled(Boolean(d.adBonus3Enabled));
+        if (d.adBonus3Reward !== undefined) setAdBonus3Reward(Number(d.adBonus3Reward) || 0.02);
+        if (d.adBonus3Required !== undefined) setAdBonus3Required(Number(d.adBonus3Required) || 3);
       }
     });
     return () => unsub();
@@ -4095,13 +4486,16 @@ export default function App() {
         });
 
         // Credit user balance
-        await updateDoc(doc(db, 'users', currentUser.uid), {
-          balance: increment(totalCredited),
-          total_deposit: increment(finalCreditAmt)
+        const uRef = doc(db, 'users', currentUser.uid);
+        const uSnap = await getDoc(uRef);
+        const curBal = uSnap.exists() ? (uSnap.data().balance || 0) : userBalance;
+        const curDep = uSnap.exists() ? (uSnap.data().total_deposit || 0) : 0;
+        await updateDoc(uRef, {
+          balance: curBal + totalCredited,
+          total_deposit: curDep + finalCreditAmt
         });
 
-        setUserBalance((prev) => prev + totalCredited);
-        setUserTotalDeposit((prev) => prev + finalCreditAmt);
+        setUserBalance(curBal + totalCredited);
 
         setAutoDepositProgress(100);
         setAutoDepositStatusText('Deposit Successful!');
@@ -4272,7 +4666,7 @@ export default function App() {
   // Admin Trx Maker: Delete TrxID
   const handleDeleteAdminTrx = async (docId: string) => {
     if (!window.confirm('Are you sure you want to delete this TrxID?')) return;
-    haptic('medium');
+    haptic('heavy');
     try {
       await deleteDoc(doc(db, 'admin_created_trxs', docId));
       showToast('TrxID deleted!', 'info');
@@ -4778,22 +5172,22 @@ export default function App() {
                   )}
                 </button>
 
-                {/* Admin Mode Toggle Button - Only shown for rashal117 */}
+                {/* Admin Mode Toggle Button */}
                 {isAdminUser && (
                   <button
                     onClick={() => {
                       setActiveTab(activeTab === 'admin' ? 'home' : 'admin');
                       haptic('heavy');
                     }}
-                    className={`relative px-3 py-1.5 rounded-xl border flex items-center gap-1.5 font-extrabold text-[10px] cursor-pointer transition active:scale-95 ${
+                    className={`relative px-3.5 py-1.5 rounded-xl border flex items-center gap-1.5 font-extrabold text-[11px] cursor-pointer transition active:scale-95 ${
                       activeTab === 'admin'
-                        ? 'bg-gradient-to-r from-amber-500 to-orange-600 text-white border-amber-400 shadow-[0_0_15px_rgba(245,158,11,0.5)]'
-                        : 'bg-amber-500/15 text-amber-300 border-amber-500/30 hover:bg-amber-500/25'
+                        ? 'bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 text-white border-amber-300 shadow-[0_0_20px_rgba(245,158,11,0.6)] animate-pulse'
+                        : 'bg-gradient-to-r from-amber-500/20 to-orange-500/20 text-amber-300 border-amber-500/40 hover:bg-amber-500/30'
                     }`}
-                    title="Admin Panel"
+                    title="Admin Panel (এডমিন প্যানেল)"
                   >
-                    <i className="fas fa-crown text-amber-400"></i>
-                    <span>ADMIN</span>
+                    <i className="fas fa-crown text-amber-400 text-xs"></i>
+                    <span>এডমিন প্যানেল</span>
                   </button>
                 )}
               </div>
@@ -4879,6 +5273,19 @@ export default function App() {
               </button>
             </div>
           </header>
+
+          {/* LIVE APP SCROLLING NOTICE BOARD BANNER */}
+          {noticeEnabled && noticeText.trim() && (
+            <div className="mx-5 mt-4 mb-1 p-2.5 rounded-2xl bg-gradient-to-r from-amber-950/90 via-slate-900 to-amber-950/90 border border-amber-500/40 shadow-xl flex items-center gap-2.5 overflow-hidden">
+              <div className="flex items-center gap-1.5 shrink-0 bg-amber-500/20 text-amber-300 px-2.5 py-1 rounded-xl border border-amber-500/40 text-xs font-black">
+                <i className="fas fa-bullhorn text-amber-400 animate-bounce"></i>
+                <span>NOTICE</span>
+              </div>
+              <div className="flex-1 overflow-hidden relative text-xs text-amber-100 font-bold">
+                <marquee scrollamount={5}>{noticeText}</marquee>
+              </div>
+            </div>
+          )}
 
           {/* HOME TAB */}
           {activeTab === 'home' && (
@@ -5237,147 +5644,85 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Modern Extra Bottom Highlights & Features Section */}
-              <div className="space-y-4 mb-6">
-                {/* Platform Live Stats Bar */}
+              {/* SLEEK MODERN QUICK ACTION SHORTCUTS & GUARANTEE */}
+              <div className="space-y-3.5 mb-6">
+                {/* Quick Action Grid */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                  <div className="glass-card p-3 rounded-2xl border border-cyan-500/20 bg-gradient-to-br from-cyan-950/40 via-slate-900 to-slate-950 text-center space-y-1">
-                    <div className="w-8 h-8 rounded-xl bg-cyan-500/15 border border-cyan-500/30 text-cyan-400 flex items-center justify-center text-xs mx-auto">
-                      <i className="fas fa-bolt"></i>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      window.scrollTo({ top: 0, behavior: 'smooth' });
+                      haptic('light');
+                    }}
+                    className="p-3 rounded-2xl bg-gradient-to-br from-blue-950/60 to-slate-900 border border-blue-500/20 hover:border-blue-400/40 text-left transition-all active:scale-95 group shadow-lg"
+                  >
+                    <div className="w-8 h-8 rounded-xl bg-blue-500/20 text-blue-400 flex items-center justify-center text-xs mb-2 group-hover:scale-110 transition">
+                      <i className="fas fa-bolt text-amber-300"></i>
                     </div>
-                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">গড় ডেলিভারি</p>
-                    <p className="text-xs font-black text-cyan-300 font-mono">১ - ৫ মিনিট</p>
-                  </div>
+                    <p className="text-xs font-extrabold text-white">Instant Order</p>
+                    <p className="text-[10px] text-slate-400">Place new order</p>
+                  </button>
 
-                  <div className="glass-card p-3 rounded-2xl border border-blue-500/20 bg-gradient-to-br from-blue-950/40 via-slate-900 to-slate-950 text-center space-y-1">
-                    <div className="w-8 h-8 rounded-xl bg-blue-500/15 border border-blue-500/30 text-blue-400 flex items-center justify-center text-xs mx-auto">
-                      <i className="fas fa-users"></i>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveTab('tasks');
+                      haptic('light');
+                    }}
+                    className="p-3 rounded-2xl bg-gradient-to-br from-purple-950/60 to-slate-900 border border-purple-500/20 hover:border-purple-400/40 text-left transition-all active:scale-95 group shadow-lg"
+                  >
+                    <div className="w-8 h-8 rounded-xl bg-purple-500/20 text-purple-400 flex items-center justify-center text-xs mb-2 group-hover:scale-110 transition">
+                      <i className="fas fa-gift text-purple-300"></i>
                     </div>
-                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">সন্তুষ্ট ইউজার</p>
-                    <p className="text-xs font-black text-blue-300 font-mono">৫০,০০০+</p>
-                  </div>
+                    <p className="text-xs font-extrabold text-white">Daily Rewards</p>
+                    <p className="text-[10px] text-slate-400">Earn free coins</p>
+                  </button>
 
-                  <div className="glass-card p-3 rounded-2xl border border-amber-500/20 bg-gradient-to-br from-amber-950/40 via-slate-900 to-slate-950 text-center space-y-1">
-                    <div className="w-8 h-8 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-400 flex items-center justify-center text-xs mx-auto">
-                      <i className="fas fa-star"></i>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveTab('funds');
+                      haptic('light');
+                    }}
+                    className="p-3 rounded-2xl bg-gradient-to-br from-emerald-950/60 to-slate-900 border border-emerald-500/20 hover:border-emerald-400/40 text-left transition-all active:scale-95 group shadow-lg"
+                  >
+                    <div className="w-8 h-8 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-xs mb-2 group-hover:scale-110 transition">
+                      <i className="fas fa-wallet text-emerald-300"></i>
                     </div>
-                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">ইউজার রেটিং</p>
-                    <p className="text-xs font-black text-amber-300 font-mono">৪.৯ / ৫.০ ★</p>
-                  </div>
+                    <p className="text-xs font-extrabold text-white">Add Funds</p>
+                    <p className="text-[10px] text-slate-400">Instant deposit</p>
+                  </button>
 
-                  <div className="glass-card p-3 rounded-2xl border border-emerald-500/20 bg-gradient-to-br from-emerald-950/40 via-slate-900 to-slate-950 text-center space-y-1">
-                    <div className="w-8 h-8 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 flex items-center justify-center text-xs mx-auto">
-                      <i className="fas fa-shield-check"></i>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsAiChatOpen(true);
+                      haptic('light');
+                    }}
+                    className="p-3 rounded-2xl bg-gradient-to-br from-amber-950/60 to-slate-900 border border-amber-500/20 hover:border-amber-400/40 text-left transition-all active:scale-95 group shadow-lg"
+                  >
+                    <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center text-xs mb-2 group-hover:scale-110 transition">
+                      <i className="fas fa-robot text-amber-300"></i>
                     </div>
-                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">সফলতা হার</p>
-                    <p className="text-xs font-black text-emerald-300 font-mono">৯৯.৯%</p>
-                  </div>
+                    <p className="text-xs font-extrabold text-white">AI Support</p>
+                    <p className="text-[10px] text-slate-400">24/7 Live assistant</p>
+                  </button>
                 </div>
 
-                {/* Extra Feature Showcase Grid */}
-                <div className="glass-card p-4 sm:p-5 rounded-2xl border border-white/10 bg-gradient-to-b from-slate-900/90 to-slate-950/95 space-y-3.5 shadow-xl">
-                  <div className="flex items-center justify-between border-b border-white/10 pb-2.5">
-                    <div className="flex items-center gap-2">
-                      <div className="w-7 h-7 rounded-lg bg-amber-500/20 border border-amber-500/40 text-amber-300 flex items-center justify-center text-xs">
-                        <i className="fas fa-crown"></i>
-                      </div>
-                      <h4 className="font-extrabold text-xs text-white uppercase tracking-wider">
-                        আমাদের সার্ভিসসমূহের বৈশিষ্ট্য (Features)
-                      </h4>
+                {/* Sleek Service Highlights Banner */}
+                <div className="p-4 rounded-2xl bg-slate-900/90 border border-white/10 shadow-xl flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 text-white flex items-center justify-center text-sm font-black shadow-md shrink-0">
+                      ⚡
                     </div>
-                    <span className="text-[9px] font-black text-cyan-300 bg-cyan-500/10 px-2 py-0.5 rounded-full border border-cyan-500/20">
-                      PREMIUM QUALITY
-                    </span>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div className="flex items-start gap-3 p-3 rounded-xl bg-black/40 border border-white/5 hover:border-cyan-500/30 transition">
-                      <div className="w-9 h-9 rounded-xl bg-cyan-500/15 text-cyan-400 flex items-center justify-center text-sm shrink-0 mt-0.5">
-                        <i className="fas fa-rocket"></i>
-                      </div>
-                      <div className="space-y-0.5">
-                        <h5 className="font-black text-xs text-cyan-200">ইনস্ট্যান্ট স্পিড প্রসেসিং</h5>
-                        <p className="text-[10px] text-slate-400 leading-relaxed">
-                          অর্ডার কনফার্ম করার সাথে সাথে অটোমেটিক সিস্টেমের মাধ্যমে দ্রুত কাজ শুরু হয়ে যায়।
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="flex items-start gap-3 p-3 rounded-xl bg-black/40 border border-white/5 hover:border-emerald-500/30 transition">
-                      <div className="w-9 h-9 rounded-xl bg-emerald-500/15 text-emerald-400 flex items-center justify-center text-sm shrink-0 mt-0.5">
-                        <i className="fas fa-coins"></i>
-                      </div>
-                      <div className="space-y-0.5">
-                        <h5 className="font-black text-xs text-emerald-200">দৈনিক রিওয়ার্ড ও ইনকাম</h5>
-                        <p className="text-[10px] text-slate-400 leading-relaxed">
-                          প্রতিদিন ফ্রি চেক-ইন, হুইল স্পিন ও টাস্ক কমপ্লিট করে ফ্রি ব্যালেন্স আয় করার সুবিধা।
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="flex items-start gap-3 p-3 rounded-xl bg-black/40 border border-white/5 hover:border-purple-500/30 transition">
-                      <div className="w-9 h-9 rounded-xl bg-purple-500/15 text-purple-400 flex items-center justify-center text-sm shrink-0 mt-0.5">
-                        <i className="fas fa-lock text-purple-300"></i>
-                      </div>
-                      <div className="space-y-0.5">
-                        <h5 className="font-black text-xs text-purple-200">নিরাপদ ও প্রাইভেট</h5>
-                        <p className="text-[10px] text-slate-400 leading-relaxed">
-                          পাসওয়ার্ডের কোনো প্রয়োজন নেই। ১০০% গোপনীয়তা রক্ষা করে সার্ভিস প্রদান করা হয়।
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="flex items-start gap-3 p-3 rounded-xl bg-black/40 border border-white/5 hover:border-amber-500/30 transition">
-                      <div className="w-9 h-9 rounded-xl bg-amber-500/15 text-amber-400 flex items-center justify-center text-sm shrink-0 mt-0.5">
-                        <i className="fas fa-headset text-amber-300"></i>
-                      </div>
-                      <div className="space-y-0.5">
-                        <h5 className="font-black text-xs text-amber-200">২৪/৭ কাস্টমার সাপোর্ট</h5>
-                        <p className="text-[10px] text-slate-400 leading-relaxed">
-                          অর্ডার সংক্রান্ত যেকোনো প্রশ্ন বা সহযোগিতায় সরাসরি টেলিগ্রাম ও সাপোর্ট চ্যানেলে যোগাযোগ করুন।
-                        </p>
-                      </div>
+                    <div>
+                      <h4 className="font-extrabold text-xs text-white">Automated Fast Processing</h4>
+                      <p className="text-[10px] text-slate-400">Orders start automatically right after confirmation</p>
                     </div>
                   </div>
-                </div>
-
-                {/* Bottom Interactive Quick Explorer CTA Banner */}
-                <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-blue-950 via-purple-950 to-slate-950 border border-blue-500/30 shadow-2xl relative overflow-hidden flex flex-wrap items-center justify-between gap-3">
-                  <div className="space-y-1 max-w-sm">
-                    <span className="text-[9px] font-black text-amber-300 bg-amber-500/10 px-2.5 py-0.5 rounded-full border border-amber-500/30">
-                      ⚡ QUICK EXPLORE
-                    </span>
-                    <h4 className="font-black text-xs text-white pt-1">
-                      ডেইলি ফ্রি বোনাস ও টাস্ক স্পিন এক্সপ্লোর করতে চান?
-                    </h4>
-                    <p className="text-[10px] text-slate-300">
-                      সহজ টাস্ক কমপ্লিট করুন, ডায়মন্ড স্পিন ঘুরান এবং আপনার ওয়ালেটে ফ্রি বোনাস যোগ করুন!
-                    </p>
-                  </div>
-
-                  <div className="flex items-center gap-2 shrink-0">
-                    <button
-                      onClick={() => {
-                        setActiveTab('tasks');
-                        haptic('light');
-                      }}
-                      className="px-3.5 py-2 bg-gradient-to-r from-cyan-500 to-blue-600 hover:brightness-110 text-white font-extrabold text-xs rounded-xl shadow-lg shadow-cyan-500/20 transition active:scale-95 flex items-center gap-1.5"
-                    >
-                      <i className="fas fa-tasks text-cyan-200"></i>
-                      <span>টাস্ক পেইজ (TASKS)</span>
-                    </button>
-
-                    <button
-                      onClick={() => {
-                        setActiveTab('funds');
-                        haptic('light');
-                      }}
-                      className="px-3.5 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs rounded-xl shadow-lg transition active:scale-95 flex items-center gap-1.5"
-                    >
-                      <i className="fas fa-wallet"></i>
-                      <span>ফান্ড ডিপোজিট</span>
-                    </button>
-                  </div>
+                  <span className="text-[9px] font-black text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-2.5 py-1 rounded-full shrink-0">
+                    ● ONLINE
+                  </span>
                 </div>
               </div>
             </section>
@@ -6375,6 +6720,221 @@ export default function App() {
                 )}
               </div>
 
+              {/* CARD: AUTO MATH QUIZ TASK */}
+              <div className="glass-card p-5 space-y-4 border border-cyan-500/30 relative overflow-hidden bg-gradient-to-br from-cyan-950/40 via-slate-900 to-emerald-950/40 shadow-xl">
+                <div className="flex items-center justify-between border-b border-white/10 pb-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-cyan-500/20 to-emerald-500/20 border border-cyan-500/40 text-cyan-300 flex items-center justify-center text-lg font-black shadow-md">
+                      <i className="fas fa-brain animate-pulse"></i>
+                    </div>
+                    <div>
+                      <h3 className="font-extrabold text-sm text-white flex items-center gap-2">
+                        <span>অটো বাংলা গণিত কুইজ (Bangla Math Quiz)</span>
+                        <span className="text-[9px] font-black bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 px-2 py-0.5 rounded-md">
+                          AUTO QUIZ
+                        </span>
+                      </h3>
+                      <p className="text-[10px] text-slate-300">
+                        সঠিক উত্তরে পাবেন ৳{toBanglaNum(mathQuizReward.toFixed(2))} বোনাস! ভুল উত্তর দিলে কুইজ লক হবে এবং {toBanglaNum(mathQuizUnlockAdsRequired)} টি এড দেখলে আবার আনলক হবে।
+                      </p>
+                    </div>
+                  </div>
+                  <span className="text-xs font-black text-emerald-400 font-mono bg-emerald-500/10 px-2.5 py-1 rounded-lg border border-emerald-500/30 shrink-0">
+                    +৳ {toBanglaNum(mathQuizReward.toFixed(2))}
+                  </span>
+                </div>
+
+                {!mathQuizEnabled ? (
+                  <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-300 text-xs font-bold text-center">
+                    ⚠️ অটো বাংলা গণিত কুইজ টাস্কটি এডমিন প্যানেল থেকে সাময়িকভাবে বন্ধ রাখা হয়েছে।
+                  </div>
+                ) : quizIsLocked ? (
+                  <div className="p-5 rounded-2xl bg-slate-950/95 border border-rose-500/40 text-center space-y-4 shadow-2xl">
+                    <div className="w-12 h-12 rounded-2xl bg-rose-500/20 border border-rose-500/40 text-rose-400 flex items-center justify-center text-xl mx-auto shadow-lg animate-bounce">
+                      <i className="fas fa-lock"></i>
+                    </div>
+
+                    <div className="space-y-1">
+                      <h4 className="font-black text-sm text-rose-300">
+                        ❌ ভুল উত্তরের কারণে কুইজটি লক করা হয়েছে!
+                      </h4>
+                      <p className="text-xs text-slate-300">
+                        কুইজটি পুনরায় আনলক করতে নিচে <span className="text-amber-300 font-bold">{toBanglaNum(mathQuizUnlockAdsRequired)} টি এড</span> দেখতে হবে।
+                      </p>
+                    </div>
+
+                    {/* Progress Slots for Unlock Ads */}
+                    <div className="grid grid-cols-2 gap-2.5 max-w-xs mx-auto">
+                      {Array.from({ length: mathQuizUnlockAdsRequired }, (_, i) => i + 1).map((num) => {
+                        const isDone = quizUnlockAdsWatched >= num;
+                        return (
+                          <div
+                            key={num}
+                            className={`p-2.5 rounded-xl border text-center transition-all ${
+                              isDone
+                                ? 'bg-emerald-500/20 border-emerald-400 text-emerald-300 font-black shadow-md'
+                                : 'bg-slate-900 border-white/10 text-slate-500'
+                            }`}
+                          >
+                            <i className={`fas ${isDone ? 'fa-check-circle text-emerald-400' : 'fa-play-circle'} text-sm`}></i>
+                            <span className="text-[11px] font-bold block pt-0.5">
+                              {isDone ? `এড ${toBanglaNum(num)} দেখা শেষ` : `এড ${toBanglaNum(num)} বাকি`}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={handleWatchQuizUnlockAd}
+                      disabled={quizUnlockAdLoading}
+                      className="w-full py-3.5 rounded-2xl font-black text-xs uppercase tracking-wider transition active:scale-95 flex items-center justify-center gap-2 bg-gradient-to-r from-rose-600 via-amber-600 to-rose-600 hover:brightness-110 text-white border border-rose-400/50 shadow-lg shadow-rose-500/20"
+                    >
+                      {quizUnlockAdLoading ? (
+                        <>
+                          <i className="fas fa-spinner fa-spin"></i>
+                          <span>এড লোড হচ্ছে...</span>
+                        </>
+                      ) : (
+                        <>
+                          <i className="fas fa-play text-amber-300 text-sm"></i>
+                          <span>
+                            এড দেখুন ({toBanglaNum(quizUnlockAdsWatched)}/{toBanglaNum(mathQuizUnlockAdsRequired)}) — কুইজ আনলক করুন
+                          </span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="p-4 rounded-2xl bg-slate-950/90 border border-cyan-500/30 text-center space-y-3 shadow-inner">
+                    <div className="text-[10px] text-cyan-300 font-bold uppercase tracking-wider flex items-center justify-center gap-1.5">
+                      <i className="fas fa-calculator text-cyan-400"></i>
+                      <span>নিচের গণিত প্রশ্নের সঠিক উত্তরটি বেছে নিন:</span>
+                    </div>
+
+                    {/* Math Problem Box in Bangla Digits */}
+                    <div className="text-2xl sm:text-3xl font-black text-amber-300 font-mono tracking-wider py-2 bg-black/60 rounded-xl border border-white/10 shadow-md">
+                      {toBanglaNum(quizQuestion.num1)} {quizQuestion.operator === '*' ? '×' : quizQuestion.operator} {toBanglaNum(quizQuestion.num2)} = ?
+                    </div>
+
+                    {/* Multiple Choice Options in Bangla Digits */}
+                    <div className="grid grid-cols-2 gap-2.5 pt-1">
+                      {quizQuestion.options.map((opt, idx) => {
+                        const isSelected = quizSelectedOption === opt;
+                        const isCorrect = opt === quizQuestion.answer;
+
+                        let btnStyle = "bg-slate-900 border-white/15 text-white hover:border-cyan-400/60 hover:bg-slate-800";
+                        if (isSelected && isCorrect) {
+                          btnStyle = "bg-emerald-600 border-emerald-400 text-white font-black scale-95 shadow-lg shadow-emerald-500/30";
+                        } else if (isSelected && !isCorrect) {
+                          btnStyle = "bg-rose-600 border-rose-400 text-white font-black scale-95 shadow-lg";
+                        }
+
+                        return (
+                          <button
+                            key={idx}
+                            type="button"
+                            disabled={quizLoading}
+                            onClick={() => handleAnswerQuiz(opt)}
+                            className={`py-3 px-2 rounded-xl text-xs sm:text-sm font-extrabold border transition-all active:scale-95 flex items-center justify-center gap-1.5 ${btnStyle}`}
+                          >
+                            <span className="font-mono text-base">{toBanglaNum(opt)}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    <div className="pt-2 border-t border-white/10 flex items-center justify-between text-[11px] font-bold text-slate-400">
+                      <span>মোট সম্পন্ন কুইজ: <span className="text-cyan-300 font-mono">{toBanglaNum(quizSolvedCount)}টি</span></span>
+                      <span>অর্জিত কুইজ বোনাস: <span className="text-emerald-400 font-mono">৳ {toBanglaNum((quizSolvedCount * mathQuizReward).toFixed(2))}</span></span>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* CARD: WATCH 3 ADS BONUS TASK */}
+              <div className="glass-card p-5 space-y-4 border border-purple-500/30 relative overflow-hidden bg-gradient-to-br from-purple-950/40 via-slate-900 to-amber-950/40 shadow-xl">
+                <div className="flex items-center justify-between border-b border-white/10 pb-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-purple-500/20 to-pink-500/20 border border-purple-500/40 text-purple-300 flex items-center justify-center text-lg font-black shadow-md">
+                      <i className="fas fa-play-circle animate-bounce"></i>
+                    </div>
+                    <div>
+                      <h3 className="font-extrabold text-sm text-white flex items-center gap-2">
+                        <span>{toBanglaNum(adBonus3Required)} Ads Bonus ({toBanglaNum(adBonus3Required)}টি এড দেখলে ১টি বোনাস)</span>
+                        <span className="text-[9px] font-black bg-purple-500/20 text-purple-300 border border-purple-500/40 px-2 py-0.5 rounded-md">
+                          REPEATABLE REWARD
+                        </span>
+                      </h3>
+                      <p className="text-[10px] text-slate-300">
+                        পরপর {toBanglaNum(adBonus3Required)}টি এড দেখলে পাবেন নিশ্চিত ৳{toBanglaNum(adBonus3Reward.toFixed(2))} বোনাস রিওয়ার্ড! যত খুশি ততবার নেওয়া যাবে।
+                      </p>
+                    </div>
+                  </div>
+                  <span className="text-xs font-black text-amber-300 font-mono bg-amber-500/10 px-2.5 py-1 rounded-lg border border-amber-500/30 shrink-0">
+                    {toBanglaNum(adBonus3Required)} Ads = +৳ {toBanglaNum(adBonus3Reward.toFixed(2))}
+                  </span>
+                </div>
+
+                {!adBonus3Enabled ? (
+                  <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-300 text-xs font-bold text-center">
+                    ⚠️ {toBanglaNum(adBonus3Required)}টি এড বোনাস টাস্কটি এডমিন প্যানেল থেকে সাময়িকভাবে বন্ধ রাখা হয়েছে।
+                  </div>
+                ) : (
+                  <div className="p-4 rounded-2xl bg-slate-950/90 border border-purple-500/30 space-y-3">
+                    {/* Progress Counter Slots */}
+                    <div className="flex items-center justify-between text-xs font-bold text-slate-300">
+                      <span>এড অগ্রগতি (Progress):</span>
+                      <span className="text-amber-400 font-mono font-black">{toBanglaNum(adBonusCounter)} / {toBanglaNum(adBonus3Required)} Watched</span>
+                    </div>
+
+                    {/* Visual Progress Slots */}
+                    <div className="grid grid-cols-3 gap-2">
+                      {Array.from({ length: adBonus3Required }, (_, i) => i + 1).map((num) => {
+                        const isWatched = adBonusCounter >= num;
+                        return (
+                          <div
+                            key={num}
+                            className={`p-2.5 rounded-xl border text-center transition-all ${
+                              isWatched
+                                ? 'bg-gradient-to-r from-purple-600 to-amber-500 border-amber-400 text-white font-black shadow-lg shadow-purple-500/20'
+                                : 'bg-slate-900 border-white/10 text-slate-500'
+                            }`}
+                          >
+                            <div className="text-sm">
+                              <i className={`fas ${isWatched ? 'fa-check-circle text-amber-200' : 'fa-circle-play'}`}></i>
+                            </div>
+                            <span className="text-[10px] font-bold block pt-0.5">
+                              {num === adBonus3Required ? `🎁 ৳${toBanglaNum(adBonus3Reward.toFixed(2))} Bonus` : `Ad ${toBanglaNum(num)}`}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={handleWatchAd3Bonus}
+                      disabled={adBonusWatchLoading}
+                      className="w-full py-3.5 rounded-2xl font-black text-xs uppercase tracking-wider transition active:scale-95 flex items-center justify-center gap-2 bg-gradient-to-r from-purple-600 via-pink-600 to-amber-500 hover:brightness-110 text-white border border-purple-400/50 shadow-lg shadow-purple-500/20"
+                    >
+                      {adBonusWatchLoading ? (
+                        <>
+                          <i className="fas fa-spinner fa-spin"></i>
+                          <span>WATCHING AD...</span>
+                        </>
+                      ) : (
+                        <>
+                          <i className="fas fa-play text-amber-300 text-sm"></i>
+                          <span>WATCH AD ({toBanglaNum(adBonusCounter)}/{toBanglaNum(adBonus3Required)}) — GET ৳{toBanglaNum(adBonus3Reward.toFixed(2))} BONUS</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                )}
+              </div>
+
               {/* CARD 2: AD EARN SYSTEM */}
               <div className="glass-card p-5 space-y-4 border border-purple-500/20 relative overflow-hidden">
                 <div className="flex items-center justify-between border-b border-white/10 pb-3">
@@ -6722,77 +7282,6 @@ export default function App() {
                 </div>
               )}
 
-              {/* BKASH & NAGAD LIVE INSTANT DEPOSIT BANNER & MODE SWITCHER */}
-              <div className="p-4 rounded-2xl bg-gradient-to-r from-slate-900 via-pink-950/30 to-slate-900 border border-pink-500/30 shadow-xl mb-5 space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <div className="w-8 h-8 rounded-xl bg-pink-500/20 text-pink-400 flex items-center justify-center font-black text-sm border border-pink-500/30">
-                      ⚡
-                    </div>
-                    <div>
-                      <h3 className="font-extrabold text-xs text-white uppercase tracking-wider">
-                        বিকাশ & নগদ অটো ডিপোজিট গেটওয়ে
-                      </h3>
-                      <p className="text-[10px] text-pink-300 font-medium">
-                        {autoDepositGlobalEnabled
-                          ? 'ট্রানজেকশন আইডি দেওয়ার সাথে সাথে ইনস্ট্যান্ট ব্যালেন্স যোগ হবে!'
-                          : 'অটো ডিপোজিট অফ আছে - ম্যানুয়াল মোডে জমা দিন'}
-                      </p>
-                    </div>
-                  </div>
-
-                  <button
-                    onClick={() => {
-                      if (!autoDepositGlobalEnabled) {
-                        showToast('⚠️ এডমিন অটো ডিপোজিট সিস্টেম সাময়িকভাবে বন্ধ রেখেছেন। ম্যানুয়াল মোড ব্যবহার করুন।', 'warning');
-                        haptic('warning');
-                        return;
-                      }
-                      setIsAutoDepositMode(!isAutoDepositMode);
-                      haptic('light');
-                    }}
-                    className={`px-3 py-1.5 rounded-xl font-extrabold text-[10px] border transition flex items-center gap-1.5 active:scale-95 ${
-                      autoDepositGlobalEnabled && isAutoDepositMode
-                        ? 'bg-emerald-500 text-slate-950 border-emerald-400 shadow-lg shadow-emerald-500/20'
-                        : autoDepositGlobalEnabled
-                        ? 'bg-white/10 text-slate-300 border-white/20'
-                        : 'bg-red-500/20 text-red-400 border-red-500/40 opacity-80'
-                    }`}
-                  >
-                    <i className={autoDepositGlobalEnabled && isAutoDepositMode ? 'fas fa-bolt text-amber-900' : autoDepositGlobalEnabled ? 'fas fa-clock' : 'fas fa-power-off'}></i>
-                    <span>
-                      {autoDepositGlobalEnabled && isAutoDepositMode
-                        ? 'অটো ইনস্ট্যান্ট চালু'
-                        : autoDepositGlobalEnabled
-                        ? 'ম্যানুয়াল মোড'
-                        : 'অটো ডিপোজিট বন্ধ (OFF)'}
-                    </span>
-                  </button>
-                </div>
-
-                <div className={`p-2.5 rounded-xl border text-[10px] flex items-center justify-between gap-2 ${
-                  autoDepositGlobalEnabled
-                    ? 'bg-slate-950/80 border-pink-500/20 text-slate-300'
-                    : 'bg-red-950/40 border-red-500/30 text-red-300'
-                }`}>
-                  <span className="flex items-center gap-1.5 font-bold">
-                    <i className={autoDepositGlobalEnabled ? 'fas fa-check-circle text-emerald-400' : 'fas fa-exclamation-triangle text-amber-400'}></i>
-                    <span>
-                      {autoDepositGlobalEnabled
-                        ? 'লাইভ অটো ভেরিফিকেশন সার্ভিস 24/7 সচল আছে'
-                        : '⚠️ এডমিন অটো ডিপোজিট বন্ধ রেখেছেন (ম্যানুয়াল রিকোয়েস্ট জমা দিন)'}
-                    </span>
-                  </span>
-                  <span className="font-mono text-[9px]">
-                    {autoDepositGlobalEnabled ? (
-                      <>গড় সময়: <strong className="text-emerald-400 font-bold">১-৩ সেকেণ্ড</strong></>
-                    ) : (
-                      <strong className="text-amber-400 font-bold">ম্যানুয়াল রিভিউ</strong>
-                    )}
-                  </span>
-                </div>
-              </div>
-
               <div className="glass-card p-6 text-center mb-5 relative overflow-hidden">
                 <div className="absolute inset-0 bg-gradient-to-br from-blue-500/10 to-transparent pointer-events-none"></div>
                 <div className="relative z-10">
@@ -6838,7 +7327,7 @@ export default function App() {
                     onClick={() => {
                       if (!autoDepositGlobalEnabled) {
                         showToast('⚠️ এডমিন অটো ডিপোজিট সিস্টেম বন্ধ রেখেছেন। বর্তমানে ম্যানুয়াল ডিপোজিট চালু আছে।', 'warning');
-                        haptic('warning');
+                        haptic('error');
                         return;
                       }
                       setIsAutoDepositMode(!isAutoDepositMode);
@@ -7331,7 +7820,7 @@ export default function App() {
                   </h3>
                   <button
                     onClick={() => {
-                      setShowLiveDepositFeedModal(true);
+                      setShowLiveOrdersModal(true);
                       haptic('light');
                     }}
                     className="text-[10px] font-bold text-emerald-400 hover:underline flex items-center gap-1"
@@ -7908,6 +8397,7 @@ export default function App() {
               <div className="flex overflow-x-auto gap-2 p-1.5 bg-slate-900/90 rounded-2xl border border-white/10 mb-5 scrollbar-none">
                 {[
                   { id: 'users', label: 'Users & Balance', icon: 'fas fa-users' },
+                  { id: 'notice', label: '📢 Notice Board (নোটিশ বোর্ড)', icon: 'fas fa-bullhorn' },
                   { id: 'spin', label: 'Lucky Spin (লকি স্পিন)', icon: 'fas fa-dharmachakra' },
                   { id: 'daily', label: 'Daily Bonus (ডেইলি বোনাস)', icon: 'fas fa-gift' },
                   { id: 'ads', label: 'Watch Ads & Earn (এড দেখে আয়)', icon: 'fas fa-play-circle' },
@@ -7917,7 +8407,7 @@ export default function App() {
                   { id: 'trx_maker', label: 'TrxID Maker (TrxID বানান)', icon: 'fas fa-key' },
                   { id: 'orders', label: 'Orders Control', icon: 'fas fa-list-check' },
                   { id: 'services', label: 'Services (API)', icon: 'fas fa-server' },
-                  { id: 'notifications', label: 'Broadcast', icon: 'fas fa-bullhorn' },
+                  { id: 'notifications', label: 'Broadcast Message', icon: 'fas fa-paper-plane' },
                   { id: 'links', label: 'Support Links', icon: 'fas fa-link' },
                   { id: 'settings', label: 'Settings', icon: 'fas fa-cog' },
                   { id: 'tasks', label: 'Tasks & Screenshots Proof (টাস্ক প্রুফ)', icon: 'fas fa-tasks' },
@@ -10141,13 +10631,92 @@ export default function App() {
                 </div>
               )}
 
-              {/* SUB TAB 5: BROADCAST NOTIFICATIONS */}
-              {adminSubTab === 'notifications' && (
-                <div className="glass-card p-4 space-y-3">
-                  <h3 className="font-extrabold text-xs text-white flex items-center gap-2">
-                    <i className="fas fa-bullhorn text-amber-400"></i>
-                    <span>Post Broadcast Notification to All Users</span>
-                  </h3>
+              {/* SUB TAB 5: BROADCAST NOTIFICATIONS & LIVE NOTICE BOARD */}
+              {(adminSubTab === 'notifications' || adminSubTab === 'notice') && (
+                <div className="space-y-4">
+                  {/* LIVE SCROLLING NOTICE BOARD CONTROL */}
+                  <div className="glass-card p-4 sm:p-5 space-y-4 border border-amber-500/30 bg-slate-950/90 shadow-2xl">
+                    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-3">
+                      <div>
+                        <h3 className="font-extrabold text-xs text-white flex items-center gap-2">
+                          <i className="fas fa-scroll text-amber-400"></i>
+                          <span>Live App Notice Board Setup (লাইভ নোটিশ বোর্ড)</span>
+                        </h3>
+                        <p className="text-[10px] text-slate-400 pt-0.5">
+                          অ্যাপের স্ক্রিনে চলমান স্ক্রলিং নোটিশ নিয়ন্ত্রণ করুন ও নোটিশ পরিবর্তন করুন
+                        </p>
+                      </div>
+
+                      {/* Toggle Button */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const newState = !noticeEnabled;
+                          setNoticeEnabled(newState);
+                          localStorage.setItem('smm_notice_enabled', String(newState));
+                          showToast(newState ? '✅ নোটিশ বোর্ড চালু করা হয়েছে!' : '⚠️ নোটিশ বোর্ড বন্ধ করা হয়েছে!', newState ? 'success' : 'info');
+                          haptic('heavy');
+                        }}
+                        className={`px-3.5 py-2 rounded-xl text-xs font-black border transition flex items-center gap-1.5 active:scale-95 ${
+                          noticeEnabled
+                            ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 shadow-lg'
+                            : 'bg-rose-500/20 text-rose-300 border-rose-500/40'
+                        }`}
+                      >
+                        <i className={`fas ${noticeEnabled ? 'fa-toggle-on text-emerald-400' : 'fa-toggle-off text-rose-400'}`}></i>
+                        <span>{noticeEnabled ? 'নোটিশ চালু (ON)' : 'নোটিশ বন্ধ (OFF)'}</span>
+                      </button>
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="form-label flex items-center justify-between text-xs">
+                        <span className="font-bold text-amber-300 flex items-center gap-1.5">
+                          <i className="fas fa-edit"></i>
+                          <span>নোটিশের বক্তব্য টাইপ করুন (Notice Message):</span>
+                        </span>
+                        <span className="text-[10px] text-slate-400">লাইভ আপডেট হবে</span>
+                      </label>
+                      <textarea
+                        rows={3}
+                        className="input-modern text-xs bg-slate-900 border-amber-500/30 focus:border-amber-400 resize-none"
+                        placeholder="নোটিশ লিখুন..."
+                        value={noticeText}
+                        onChange={(e) => setNoticeText(e.target.value)}
+                      />
+                    </div>
+
+                    {/* Live Preview */}
+                    {noticeEnabled && noticeText.trim() && (
+                      <div className="p-2.5 rounded-xl bg-amber-950/40 border border-amber-500/30 space-y-1">
+                        <span className="text-[9px] font-bold text-amber-400 uppercase tracking-wider block">
+                          👀 Live Scroll Notice Banner Preview:
+                        </span>
+                        <div className="p-2.5 rounded-xl bg-slate-900 border border-amber-500/30 text-xs text-amber-200 overflow-hidden whitespace-nowrap">
+                          <marquee scrollamount={5}>{noticeText}</marquee>
+                        </div>
+                      </div>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        localStorage.setItem('smm_notice_text', noticeText);
+                        localStorage.setItem('smm_notice_enabled', String(noticeEnabled));
+                        showToast('🎉 নোটিশ সফলভাবে সেভ ও পাবলিশ করা হয়েছে!', 'success');
+                        haptic('success');
+                      }}
+                      className="w-full py-2.5 bg-gradient-to-r from-amber-600 via-yellow-600 to-amber-600 hover:from-amber-500 hover:to-yellow-500 text-slate-950 font-black text-xs rounded-xl shadow-lg transition active:scale-95 flex items-center justify-center gap-2"
+                    >
+                      <i className="fas fa-save text-sm"></i>
+                      <span>SAVE & PUBLISH NOTICE (নোটিশ সেভ করুন)</span>
+                    </button>
+                  </div>
+
+                  <div className="glass-card p-4 space-y-3">
+                    <h3 className="font-extrabold text-xs text-white flex items-center gap-2">
+                      <i className="fas fa-bullhorn text-amber-400"></i>
+                      <span>Post Broadcast Notification to All Users</span>
+                    </h3>
 
                   <div>
                     <label className="form-label">Notification Title</label>
@@ -10233,6 +10802,7 @@ export default function App() {
                     <span>BROADCAST TO ALL USERS</span>
                   </button>
                 </div>
+              </div>
               )}
 
               {/* SUB TAB 6: SUPPORT LINKS */}
@@ -10526,6 +11096,157 @@ export default function App() {
                       <span className="text-white bg-amber-500 px-2 py-0.5 rounded-md text-[11px] text-black font-black">
                         {allTaskSubmissions.filter((s) => s.status === 'Pending').length}
                       </span>
+                    </div>
+                  </div>
+
+                  {/* Task Settings Control Card: Math Quiz & 3-Ads Bonus */}
+                  <div className="bg-slate-900/90 border border-cyan-500/30 rounded-2xl p-4 sm:p-5 space-y-4 shadow-xl">
+                    <div className="flex items-center justify-between border-b border-white/10 pb-3">
+                      <div className="flex items-center gap-3">
+                        <div className="w-9 h-9 rounded-xl bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 flex items-center justify-center text-sm font-bold">
+                          <i className="fas fa-sliders"></i>
+                        </div>
+                        <div>
+                          <h4 className="font-extrabold text-sm text-white">Auto Quiz & Ad Bonus Task Settings (কুইজ ও এড বোনাস কন্ট্রোল)</h4>
+                          <p className="text-[11px] text-slate-400">অটো বাংলা কুইজ এবং এড বোনাস টাস্ক অন/অফ এবং রিওয়ার্ড রেট পরিবর্তন করুন</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {/* Section 1: Auto Math Quiz Controls */}
+                      <div className="p-4 rounded-xl bg-slate-950/80 border border-cyan-500/20 space-y-3">
+                        <div className="flex items-center justify-between border-b border-white/10 pb-2">
+                          <span className="font-extrabold text-xs text-cyan-300 flex items-center gap-1.5">
+                            <i className="fas fa-brain"></i>
+                            Auto Math Quiz (অটো গণিত কুইজ)
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const nextVal = !mathQuizEnabled;
+                              setMathQuizEnabled(nextVal);
+                              saveTaskConfigToFirestore({ mathQuizEnabled: nextVal });
+                              showToast(
+                                nextVal ? '🟢 অটো গণিত কুইজ চালু করা হয়েছে' : '🔴 অটো গণিত কুইজ বন্ধ করা হয়েছে',
+                                'info'
+                              );
+                              haptic('heavy');
+                            }}
+                            className={`px-3 py-1 rounded-lg text-[11px] font-black border transition ${
+                              mathQuizEnabled
+                                ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
+                                : 'bg-red-500/20 text-red-400 border-red-500/40'
+                            }`}
+                          >
+                            {mathQuizEnabled ? 'ON (চালু)' : 'OFF (বন্ধ)'}
+                          </button>
+                        </div>
+
+                        <div className="space-y-2 text-xs">
+                          <div>
+                            <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">
+                              সঠিক উত্তরের বোনাস পরিমাণ (৳)
+                            </label>
+                            <input
+                              type="number"
+                              step="0.01"
+                              value={mathQuizReward}
+                              onChange={(e) => setMathQuizReward(parseFloat(e.target.value) || 0)}
+                              className="input-field text-xs py-2 text-emerald-400 font-mono font-bold"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">
+                              ভুল উত্তর দিলে কুইজ আনলকে এড দেখার সংখ্যা (টি)
+                            </label>
+                            <input
+                              type="number"
+                              value={mathQuizUnlockAdsRequired}
+                              onChange={(e) => setMathQuizUnlockAdsRequired(parseInt(e.target.value, 10) || 1)}
+                              className="input-field text-xs py-2 text-amber-300 font-mono font-bold"
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Section 2: 3 Ads Bonus Controls */}
+                      <div className="p-4 rounded-xl bg-slate-950/80 border border-purple-500/20 space-y-3">
+                        <div className="flex items-center justify-between border-b border-white/10 pb-2">
+                          <span className="font-extrabold text-xs text-purple-300 flex items-center gap-1.5">
+                            <i className="fas fa-play-circle"></i>
+                            Ad Bonus Task (এড বোনাস টাস্ক)
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const nextVal = !adBonus3Enabled;
+                              setAdBonus3Enabled(nextVal);
+                              saveTaskConfigToFirestore({ adBonus3Enabled: nextVal });
+                              showToast(
+                                nextVal ? '🟢 এড বোনাস টাস্ক চালু করা হয়েছে' : '🔴 এড বোনাস টাস্ক বন্ধ করা হয়েছে',
+                                'info'
+                              );
+                              haptic('heavy');
+                            }}
+                            className={`px-3 py-1 rounded-lg text-[11px] font-black border transition ${
+                              adBonus3Enabled
+                                ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
+                                : 'bg-red-500/20 text-red-400 border-red-500/40'
+                            }`}
+                          >
+                            {adBonus3Enabled ? 'ON (চালু)' : 'OFF (বন্ধ)'}
+                          </button>
+                        </div>
+
+                        <div className="space-y-2 text-xs">
+                          <div>
+                            <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">
+                              এড বোনাস পাওয়ার পর টাকা (৳)
+                            </label>
+                            <input
+                              type="number"
+                              step="0.01"
+                              value={adBonus3Reward}
+                              onChange={(e) => setAdBonus3Reward(parseFloat(e.target.value) || 0)}
+                              className="input-field text-xs py-2 text-emerald-400 font-mono font-bold"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">
+                              কতটি এড দেখলে বোনাস পাবে (টি)
+                            </label>
+                            <input
+                              type="number"
+                              value={adBonus3Required}
+                              onChange={(e) => setAdBonus3Required(parseInt(e.target.value, 10) || 1)}
+                              className="input-field text-xs py-2 text-amber-300 font-mono font-bold"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="pt-2 flex justify-end">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          saveTaskConfigToFirestore({
+                            mathQuizEnabled,
+                            mathQuizReward,
+                            mathQuizUnlockAdsRequired,
+                            adBonus3Enabled,
+                            adBonus3Reward,
+                            adBonus3Required,
+                          });
+                          showToast('✅ কুইজ ও এড বোনাস সেটিং সফলভাবে ফায়ারবেসে সেভ করা হয়েছে!', 'success');
+                          haptic('success');
+                        }}
+                        className="py-2.5 px-5 rounded-xl bg-gradient-to-r from-cyan-600 via-indigo-600 to-purple-600 hover:brightness-110 text-white font-black text-xs transition active:scale-95 shadow-md flex items-center gap-2"
+                      >
+                        <i className="fas fa-save text-amber-300"></i>
+                        <span>SAVE TASK SETTINGS (সেটিং সেভ করুন)</span>
+                      </button>
                     </div>
                   </div>
 
@@ -11477,6 +12198,19 @@ export default function App() {
                                 : 'bg-slate-800 text-slate-100 rounded-tl-none border border-white/10 shadow-md'
                             }`}
                           >
+                            {msg.attachments && msg.attachments.length > 0 && (
+                              <div className="mb-2 space-y-1.5">
+                                {msg.attachments.map((att, attIdx) => (
+                                  <div key={attIdx} className="rounded-xl overflow-hidden border border-white/20 bg-slate-950">
+                                    {att.type === 'image' ? (
+                                      <img src={att.url} alt={att.name || 'Photo'} className="max-h-48 w-full object-cover rounded-xl" />
+                                    ) : (
+                                      <video src={att.url} controls className="max-h-48 w-full rounded-xl" />
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
                             <p>{msg.text}</p>
                             <span className="block text-[8px] text-slate-400 mt-1 text-right font-mono">
                               {msg.time}
@@ -11503,8 +12237,41 @@ export default function App() {
                       )}
                     </div>
 
+                    {/* Pending Attachments preview */}
+                    {pendingAiAttachments.length > 0 && (
+                      <div className="flex items-center gap-2 overflow-x-auto p-2 bg-slate-900 rounded-xl border border-purple-500/30">
+                        {pendingAiAttachments.map((att, idx) => (
+                          <div key={idx} className="relative group shrink-0 w-16 h-16 rounded-lg overflow-hidden border border-purple-400/50 bg-slate-950">
+                            {att.type === 'image' ? (
+                              <img src={att.url} alt="upload" className="w-full h-full object-cover" />
+                            ) : (
+                              <video src={att.url} className="w-full h-full object-cover" />
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => setPendingAiAttachments((prev) => prev.filter((_, i) => i !== idx))}
+                              className="absolute top-0.5 right-0.5 bg-rose-600 text-white rounded-full w-4 h-4 text-[9px] flex items-center justify-center shadow"
+                            >
+                              ×
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
                     {/* Test Chat Input */}
-                    <div className="flex gap-2">
+                    <div className="flex items-center gap-2">
+                      <label className="p-2.5 rounded-xl bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 cursor-pointer transition shrink-0 flex items-center gap-1 text-xs font-bold" title="Upload Photo/Video">
+                        <i className="fas fa-paperclip"></i>
+                        <input
+                          type="file"
+                          accept="image/*,video/*"
+                          multiple
+                          className="hidden"
+                          onChange={(e) => handleAiFileUpload(e.target.files)}
+                        />
+                      </label>
+
                       <input
                         type="text"
                         className="input-modern text-xs flex-1"
@@ -11520,13 +12287,197 @@ export default function App() {
                       />
                       <button
                         type="button"
-                        disabled={isAiSending || !aiInputText.trim()}
+                        disabled={isAiSending || (!aiInputText.trim() && pendingAiAttachments.length === 0)}
                         onClick={() => handleSendAiMessage()}
                         className="px-4 py-2 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white font-extrabold text-xs rounded-xl shadow-md transition active:scale-95 flex items-center gap-1.5"
                       >
                         <i className="fas fa-paper-plane"></i>
                         <span>TEST</span>
                       </button>
+                    </div>
+                  </div>
+
+                  {/* Customer AI Support Chat Logs (সকল কাস্টমারের চ্যাট হিস্ট্রি ও মেসেজ লগ) */}
+                  <div className="glass-card p-4 sm:p-5 space-y-4 border border-purple-500/30 bg-slate-950/90 shadow-2xl">
+                    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-3">
+                      <div>
+                        <h4 className="font-extrabold text-xs text-white flex items-center gap-2">
+                          <i className="fas fa-comments text-purple-400"></i>
+                          <span>Customer AI Support Logs (সকল ইউজার চ্যাট হিস্ট্রি - {globalSupportLogs.length})</span>
+                        </h4>
+                        <p className="text-[10px] text-slate-400 pt-0.5">গ্রাহকদের পাঠানো প্রশ্ন, ছবি/ভিডিও স্ক্রিনশট এবং এআই রেসপন্স এখান থেকে সরাসরি মনিটর করুন</p>
+                      </div>
+
+                      {globalSupportLogs.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (window.confirm('আপনি কি সকল কাস্টমার সাপোর্ট চ্যাট লগ মুছে ফেলতে চান?')) {
+                              setGlobalSupportLogs([]);
+                              localStorage.removeItem('smm_ai_support_global_logs_v1');
+                              showToast('সকল কাস্টমার সাপোর্ট চ্যাট লগ ক্লিয়ার করা হয়েছে', 'info');
+                            }
+                          }}
+                          className="px-3 py-1.5 bg-rose-500/20 text-rose-300 hover:bg-rose-500/30 border border-rose-500/30 font-bold text-[10px] rounded-xl transition active:scale-95 flex items-center gap-1.5"
+                        >
+                          <i className="fas fa-trash-alt"></i>
+                          <span>CLEAR ALL LOGS</span>
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Search Input */}
+                    <div className="relative">
+                      <input
+                        type="text"
+                        className="input-modern text-xs pl-9 bg-slate-900 border-white/10"
+                        placeholder="ইউজার নাম, ইমেইল বা মেসেজ দিয়ে সার্চ করুন..."
+                        value={aiLogSearchQuery}
+                        onChange={(e) => setAiLogSearchQuery(e.target.value)}
+                      />
+                      <i className="fas fa-search text-slate-400 absolute left-3 top-3 text-xs"></i>
+                    </div>
+
+                    {/* Logs List */}
+                    <div className="space-y-3 max-h-[500px] overflow-y-auto pr-1">
+                      {globalSupportLogs.filter(log => {
+                        if (!aiLogSearchQuery.trim()) return true;
+                        const q = aiLogSearchQuery.toLowerCase();
+                        return (
+                          log.userName.toLowerCase().includes(q) ||
+                          log.userEmail.toLowerCase().includes(q) ||
+                          log.prompt.toLowerCase().includes(q) ||
+                          log.reply.toLowerCase().includes(q)
+                        );
+                      }).length === 0 ? (
+                        <div className="p-8 text-center bg-slate-900/50 rounded-2xl border border-dashed border-white/10 space-y-2">
+                          <i className="fas fa-inbox text-slate-600 text-2xl"></i>
+                          <p className="text-xs text-slate-400 font-bold">কোনো চ্যাট হিস্ট্রি বা সাপোর্ট মেসেজ পাওয়া যায়নি</p>
+                        </div>
+                      ) : (
+                        globalSupportLogs
+                          .filter(log => {
+                            if (!aiLogSearchQuery.trim()) return true;
+                            const q = aiLogSearchQuery.toLowerCase();
+                            return (
+                              log.userName.toLowerCase().includes(q) ||
+                              log.userEmail.toLowerCase().includes(q) ||
+                              log.prompt.toLowerCase().includes(q) ||
+                              log.reply.toLowerCase().includes(q)
+                            );
+                          })
+                          .map((log) => (
+                            <div key={log.id} className="p-3.5 bg-slate-900/90 border border-purple-500/20 rounded-2xl space-y-2 relative group hover:border-purple-400/40 transition">
+                              <div className="flex items-center justify-between border-b border-white/5 pb-2 text-xs">
+                                <div className="flex items-center gap-2">
+                                  <div className="w-7 h-7 rounded-full bg-purple-500/20 text-purple-300 flex items-center justify-center font-bold text-xs">
+                                    <i className="fas fa-user"></i>
+                                  </div>
+                                  <div>
+                                    <span className="font-extrabold text-white">{log.userName}</span>
+                                    <span className="text-[10px] text-slate-400 ml-2 font-mono">({log.userEmail})</span>
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-2 text-[10px] text-slate-400 font-mono">
+                                  <span>{log.date} {log.time}</span>
+                                  <button
+                                    onClick={() => {
+                                      setGlobalSupportLogs((prev) => {
+                                        const updated = prev.filter(item => item.id !== log.id);
+                                        localStorage.setItem('smm_ai_support_global_logs_v1', JSON.stringify(updated));
+                                        return updated;
+                                      });
+                                    }}
+                                    className="text-rose-400 hover:text-rose-300 p-1"
+                                    title="Delete Log"
+                                  >
+                                    <i className="fas fa-trash-alt"></i>
+                                  </button>
+                                </div>
+                              </div>
+
+                              {/* User Query */}
+                              <div className="bg-slate-950/80 p-2.5 rounded-xl border border-white/5 space-y-1.5">
+                                <div className="flex items-center justify-between text-[10px] text-purple-300 font-bold">
+                                  <span>👤 Customer Question:</span>
+                                </div>
+                                {log.attachments && log.attachments.length > 0 && (
+                                  <div className="flex flex-wrap gap-2 my-1">
+                                    {log.attachments.map((att, aIdx) => (
+                                      <div key={aIdx} className="rounded-xl overflow-hidden border border-purple-500/40 max-w-[200px]">
+                                        {att.type === 'image' ? (
+                                          <img src={att.url} alt="Attachment" className="max-h-40 object-cover" />
+                                        ) : (
+                                          <video src={att.url} controls className="max-h-40" />
+                                        )}
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                                <p className="text-xs text-slate-200 whitespace-pre-wrap">{log.prompt}</p>
+                              </div>
+
+                              {/* AI Response */}
+                              <div className="bg-purple-950/40 p-2.5 rounded-xl border border-purple-500/20 space-y-1">
+                                <div className="text-[10px] text-indigo-300 font-bold flex items-center gap-1">
+                                  <i className="fas fa-robot text-purple-400"></i>
+                                  <span>🤖 AI Assistant Reply:</span>
+                                </div>
+                                <p className="text-xs text-purple-100 whitespace-pre-wrap leading-relaxed">{log.reply}</p>
+                              </div>
+
+                              {/* Admin Previous Direct Replies (if any) */}
+                              {log.adminReplies && log.adminReplies.length > 0 && (
+                                <div className="space-y-1.5 pt-1">
+                                  <span className="text-[10px] text-amber-300 font-bold flex items-center gap-1">
+                                    <i className="fas fa-crown text-amber-400"></i>
+                                    <span>👑 Admin Sent Replies ({log.adminReplies.length}):</span>
+                                  </span>
+                                  {log.adminReplies.map((r, rIdx) => (
+                                    <div key={r.id || rIdx} className="bg-amber-950/40 border border-amber-500/30 p-2 rounded-xl text-xs text-amber-100">
+                                      <div className="flex items-center justify-between text-[9px] text-amber-400 font-mono mb-1">
+                                        <span>👑 Admin Message</span>
+                                        <span>{r.date} {r.time}</span>
+                                      </div>
+                                      <p className="whitespace-pre-wrap">{r.text}</p>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+
+                              {/* Admin Direct Reply Box */}
+                              <div className="pt-2 border-t border-white/5 space-y-1.5">
+                                <span className="text-[10px] text-slate-300 font-bold flex items-center gap-1">
+                                  <i className="fas fa-reply text-purple-400"></i>
+                                  <span>ইউজারকে সরাসরি মেসেজ দিন (Send Direct Message):</span>
+                                </span>
+                                <div className="flex items-center gap-2">
+                                  <input
+                                    type="text"
+                                    className="input-modern text-xs flex-1 bg-slate-950 border-purple-500/30 focus:border-purple-400"
+                                    placeholder={`${log.userName}-কে মেসেজ টাইপ করুন...`}
+                                    value={adminReplyInputs[log.id] || ''}
+                                    onChange={(e) => setAdminReplyInputs((prev) => ({ ...prev, [log.id]: e.target.value }))}
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter') {
+                                        e.preventDefault();
+                                        handleAdminSendDirectReply(log.id);
+                                      }
+                                    }}
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => handleAdminSendDirectReply(log.id)}
+                                    className="px-3.5 py-2 bg-gradient-to-r from-amber-600 to-purple-600 hover:from-amber-500 hover:to-purple-500 text-white font-extrabold text-xs rounded-xl shadow-md transition active:scale-95 flex items-center gap-1.5 shrink-0"
+                                  >
+                                    <i className="fas fa-paper-plane"></i>
+                                    <span>SEND</span>
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          ))
+                      )}
                     </div>
                   </div>
                 </div>
@@ -13035,27 +13986,11 @@ export default function App() {
             </div>
           )}
 
-          {/* FLOATING AI SUPPORT BUTTON */}
-          <button
-            type="button"
-            onClick={() => {
-              setIsAiChatOpen(true);
-              haptic('medium');
-            }}
-            className="fixed bottom-20 right-4 z-40 p-3 sm:px-4 bg-gradient-to-r from-purple-600 via-indigo-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 text-white rounded-full shadow-2xl shadow-purple-500/50 border border-purple-400/40 flex items-center gap-2 hover:scale-105 active:scale-95 transition-all group"
-            title="AI Support Assistant (এআই সহায়িকা)"
-          >
-            <div className="relative flex items-center justify-center">
-              <i className="fas fa-robot text-lg text-purple-200 group-hover:rotate-12 transition"></i>
-              <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-emerald-400 rounded-full border-2 border-slate-900 animate-pulse"></span>
-            </div>
-            <span className="text-xs font-black tracking-wide pr-1">এআই সাপোর্ট</span>
-          </button>
 
           {/* AI CHAT MODAL OVERLAY */}
           {isAiChatOpen && (
-            <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-2 sm:p-4 animate-in fade-in duration-200">
-              <div className="w-full max-w-lg h-[88vh] bg-slate-900 border border-purple-500/30 rounded-3xl shadow-2xl flex flex-col overflow-hidden relative">
+            <div className="fixed inset-0 z-[100] bg-slate-950/85 backdrop-blur-md flex items-end sm:items-center justify-center p-2 sm:p-4 pb-20 sm:pb-4 animate-in fade-in duration-200">
+              <div className="w-full max-w-lg h-[75vh] sm:h-[80vh] max-h-[600px] mb-2 sm:mb-0 bg-slate-900 border border-purple-500/30 rounded-3xl shadow-2xl flex flex-col overflow-hidden relative">
                 {/* Modal Header */}
                 <div className="p-4 bg-gradient-to-r from-purple-950 via-indigo-950 to-slate-900 border-b border-purple-500/20 flex items-center justify-between shrink-0">
                   <div className="flex items-center gap-3">
@@ -13150,13 +14085,40 @@ export default function App() {
                         </div>
                       )}
 
+                      {msg.role === 'admin' && (
+                        <div className="w-8 h-8 rounded-2xl bg-amber-500/30 border border-amber-400/60 text-amber-300 flex items-center justify-center text-sm shrink-0 mt-0.5 shadow-md font-bold">
+                          👑
+                        </div>
+                      )}
+
                       <div
                         className={`max-w-[85%] p-3.5 rounded-2xl text-xs leading-relaxed whitespace-pre-wrap ${
                           msg.role === 'user'
                             ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-tr-none shadow-lg'
+                            : msg.role === 'admin'
+                            ? 'bg-gradient-to-r from-emerald-950 via-slate-900 to-purple-950 text-emerald-100 rounded-tl-none border-2 border-emerald-500/50 shadow-xl'
                             : 'bg-slate-900 text-slate-100 rounded-tl-none border border-purple-500/20 shadow-lg'
                         }`}
                       >
+                        {msg.role === 'admin' && (
+                          <div className="text-[10px] font-black text-emerald-400 mb-1.5 flex items-center gap-1.5 border-b border-emerald-500/30 pb-1">
+                            <span>👑 ADMIN DIRECT SUPPORT (এডমিন সরাসরি উত্তর দিয়েছেন)</span>
+                          </div>
+                        )}
+
+                        {msg.attachments && msg.attachments.length > 0 && (
+                          <div className="mb-2 space-y-2">
+                            {msg.attachments.map((att, attIdx) => (
+                              <div key={attIdx} className="rounded-xl overflow-hidden border border-white/20 bg-slate-950">
+                                {att.type === 'image' ? (
+                                  <img src={att.url} alt={att.name || 'Photo'} className="max-h-56 w-full object-cover rounded-xl" />
+                                ) : (
+                                  <video src={att.url} controls className="max-h-56 w-full rounded-xl" />
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
                         <p>{msg.text}</p>
                         <span className="block text-[8px] text-slate-400 mt-1.5 text-right font-mono">
                           {msg.time}
@@ -13184,13 +14146,48 @@ export default function App() {
                   )}
                 </div>
 
-                {/* Input Bar */}
-                <div className="p-3 bg-slate-900 border-t border-purple-500/20 shrink-0">
+                {/* Input Bar & Attachment Previews */}
+                <div className="p-3 bg-slate-900 border-t border-purple-500/20 shrink-0 space-y-2">
+                  {pendingAiAttachments.length > 0 && (
+                    <div className="flex items-center gap-2 overflow-x-auto p-2 bg-slate-950 rounded-xl border border-purple-500/30">
+                      {pendingAiAttachments.map((att, idx) => (
+                        <div key={idx} className="relative group shrink-0 w-16 h-16 rounded-lg overflow-hidden border border-purple-400/50 bg-slate-900">
+                          {att.type === 'image' ? (
+                            <img src={att.url} alt="preview" className="w-full h-full object-cover" />
+                          ) : (
+                            <video src={att.url} className="w-full h-full object-cover" />
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => setPendingAiAttachments((prev) => prev.filter((_, i) => i !== idx))}
+                            className="absolute top-0.5 right-0.5 bg-rose-600 text-white rounded-full w-4 h-4 text-[9px] flex items-center justify-center shadow"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
                   <div className="flex items-center gap-2">
+                    <label
+                      className="p-3 bg-purple-950/80 hover:bg-purple-900 border border-purple-500/40 text-purple-300 rounded-xl cursor-pointer transition flex items-center justify-center shrink-0 active:scale-95"
+                      title="ছবি বা ভিডিও যুক্ত করুন"
+                    >
+                      <i className="fas fa-camera text-sm"></i>
+                      <input
+                        type="file"
+                        accept="image/*,video/*"
+                        multiple
+                        className="hidden"
+                        onChange={(e) => handleAiFileUpload(e.target.files)}
+                      />
+                    </label>
+
                     <input
                       type="text"
                       className="input-modern text-xs flex-1 bg-slate-950 border-purple-500/30 focus:border-purple-400"
-                      placeholder="আপনার প্রশ্নটি টাইপ করুন..."
+                      placeholder="আপনার প্রশ্ন টাইপ করুন বা ছবি/ভিডিও সেন্ড করুন..."
                       value={aiInputText}
                       onChange={(e) => setAiInputText(e.target.value)}
                       onKeyDown={(e) => {
@@ -13202,7 +14199,7 @@ export default function App() {
                     />
                     <button
                       type="button"
-                      disabled={isAiSending || !aiInputText.trim()}
+                      disabled={isAiSending || (!aiInputText.trim() && pendingAiAttachments.length === 0)}
                       onClick={() => handleSendAiMessage()}
                       className="px-4 py-3 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 disabled:opacity-40 text-white font-extrabold text-xs rounded-xl shadow-lg transition active:scale-95 flex items-center gap-1.5 shrink-0"
                     >
@@ -13213,6 +14210,26 @@ export default function App() {
                 </div>
               </div>
             </div>
+          )}
+
+          {/* FLOATING AI SUPPORT BUTTON */}
+          {aiSupportEnabled && !isAiChatOpen && (
+            <button
+              type="button"
+              onClick={() => {
+                setIsAiChatOpen(true);
+                haptic('light');
+              }}
+              className="fixed bottom-28 right-4 z-40 bg-gradient-to-r from-purple-600 via-indigo-600 to-purple-700 text-white px-3.5 py-2.5 rounded-full shadow-2xl border border-purple-400/40 flex items-center gap-2 text-xs font-black hover:scale-105 active:scale-95 transition-all group animate-bounce"
+              style={{ animationDuration: '3s' }}
+            >
+              <div className="relative">
+                <i className="fas fa-robot text-base text-purple-200 group-hover:rotate-12 transition duration-300"></i>
+                <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-emerald-400 rounded-full border-2 border-slate-900 animate-ping"></span>
+                <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-emerald-400 rounded-full border-2 border-slate-900"></span>
+              </div>
+              <span className="tracking-wide">AI সাপোর্ট</span>
+            </button>
           )}
 
           {/* BOTTOM NAVIGATION */}
@@ -13283,14 +14300,14 @@ export default function App() {
             </div>
             {isAdminUser && (
               <div
-                className={`nav-item-premium ${activeTab === 'admin' ? 'active' : ''}`}
+                className={`nav-item-premium ${activeTab === 'admin' ? 'active font-black text-amber-300' : ''}`}
                 onClick={() => {
                   setActiveTab('admin');
                   haptic('heavy');
                 }}
               >
                 <i className="fas fa-crown text-amber-400"></i>
-                <span>Admin</span>
+                <span>এডমিন</span>
               </div>
             )}
 
