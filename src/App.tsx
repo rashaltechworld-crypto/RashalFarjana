@@ -454,8 +454,6 @@ export default function App() {
       currentUser.email?.toLowerCase() === 'rashal117' ||
       currentUser.email?.toLowerCase() === 'rashal117@gmail.com' ||
       currentUser.email?.toLowerCase() === 'rashaltechworld@gmail.com' ||
-      currentUser.email?.toLowerCase().includes('rashal') ||
-      currentUser.email?.toLowerCase().includes('admin') ||
       currentUser.role === 'admin'
     )
   );
@@ -491,7 +489,7 @@ export default function App() {
   const [allDepositRequests, setAllDepositRequests] = useState<DepositRequest[]>([]);
 
   // Admin Manual Service Form & Control State
-  const [adminSubTab, setAdminSubTab] = useState<'users' | 'spin' | 'daily' | 'ads' | 'promo' | 'payment' | 'deposits' | 'trx_maker' | 'orders' | 'services' | 'notifications' | 'notice' | 'links' | 'settings' | 'tasks' | 'avatars' | 'ai_support'>('users');
+  const [adminSubTab, setAdminSubTab] = useState<'users' | 'spin' | 'daily' | 'ads' | 'promo' | 'payment' | 'deposits' | 'trx_maker' | 'orders' | 'services' | 'notifications' | 'notice' | 'links' | 'settings' | 'tasks' | 'avatars' | 'ai_support' | 'banners'>('users');
 
   // AI Support System State
   const [aiSupportEnabled, setAiSupportEnabled] = useState<boolean>(() => {
@@ -1010,7 +1008,7 @@ export default function App() {
   const [tgChannel1Url, setTgChannel1Url] = useState('https://t.me/RF2_SMM');
   const [tgChannel2Id, setTgChannel2Id] = useState('');
   const [tgChannel2Url, setTgChannel2Url] = useState('');
-  const [tgMiniAppUrl, setTgMiniAppUrl] = useState('https://t.me/RF_SMM_PRO_BOT?startapp=8479465879');
+  const [tgMiniAppUrl, setTgMiniAppUrl] = useState('https://t.me/RF_SMM_PRO_BOT');
 
   // Mandatory Telegram Channels State
   const [mandatoryChannels, setMandatoryChannels] = useState<Array<{ name: string; url: string; chatId?: string }>>([
@@ -1020,8 +1018,9 @@ export default function App() {
     { name: 'Farju SMM Panel', url: 'https://t.me/FARJU_SMM_PANAL', chatId: '@FARJU_SMM_PANAL' }
   ]);
   const [mandatoryChannelsEnabled, setMandatoryChannelsEnabled] = useState<boolean>(true);
+  const [showChannelJoinModal, setShowChannelJoinModal] = useState<boolean>(false);
   const [hasCompletedMandatoryJoin, setHasCompletedMandatoryJoin] = useState<boolean>(() => {
-    return localStorage.getItem('smm_mandatory_channels_v2') === 'true';
+    return localStorage.getItem('smm_mandatory_channels_v3') === 'true';
   });
   const [joinedChannelIndexes, setJoinedChannelIndexes] = useState<number[]>([]);
   const [verifiedChannelIndexes, setVerifiedChannelIndexes] = useState<number[]>([]);
@@ -1036,7 +1035,7 @@ export default function App() {
 
   // Periodic Channel Check Controls & State
   const [periodicChannelCheckEnabled, setPeriodicChannelCheckEnabled] = useState<boolean>(true);
-  const [periodicChannelCheckInterval, setPeriodicChannelCheckInterval] = useState<number>(5); // minutes
+  const [periodicChannelCheckInterval, setPeriodicChannelCheckInterval] = useState<number>(1); // minutes
   const [lastChannelCheckTime, setLastChannelCheckTime] = useState<number>(() => {
     const saved = localStorage.getItem('smm_last_ch_check_ts');
     return saved ? parseInt(saved, 10) : Date.now();
@@ -1099,8 +1098,39 @@ export default function App() {
   const [adEarnDailyMaxLimit, setAdEarnDailyMaxLimit] = useState<number>(500);
   const [adWatchLoading, setAdWatchLoading] = useState<boolean>(false);
   const [showAdModal, setShowAdModal] = useState<boolean>(false);
+  const [adModalType, setAdModalType] = useState<'ad_earn' | 'daily_checkin'>('ad_earn');
   const [adCountdown, setAdCountdown] = useState<number>(5);
   const [adCanClaim, setAdCanClaim] = useState<boolean>(false);
+
+  // Home Banners Carousel System State
+  const [bannersEnabled, setBannersEnabled] = useState<boolean>(true);
+  const [bannersList, setBannersList] = useState<Array<{
+    id: string;
+    imageUrl: string;
+    title?: string;
+    linkUrl?: string;
+    createdAt?: number;
+  }>>([
+    {
+      id: 'b1',
+      imageUrl: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=1200&q=80',
+      title: '⚡ 100% Trusted SMM Panel & Instant Delivery',
+      linkUrl: 'https://t.me/RF2_SMM'
+    },
+    {
+      id: 'b2',
+      imageUrl: 'https://images.unsplash.com/photo-1550745165-9bc0b252726f?auto=format&fit=crop&w=1200&q=80',
+      title: '🎁 Claim Daily Free Bonus & Earn Extra Cash',
+      linkUrl: ''
+    }
+  ]);
+  const [activeBannerIndex, setActiveBannerIndex] = useState<number>(0);
+
+  // Admin Banner Form State
+  const [newBannerTitle, setNewBannerTitle] = useState<string>('');
+  const [newBannerLinkUrl, setNewBannerLinkUrl] = useState<string>('');
+  const [newBannerImageUrl, setNewBannerImageUrl] = useState<string>('');
+  const [newBannerUploading, setNewBannerUploading] = useState<boolean>(false);
 
   useEffect(() => {
     let timer: any = null;
@@ -1291,7 +1321,7 @@ export default function App() {
       const ch1Url = tgChannel1Url.trim() || 'https://t.me/RF2_SMM';
       const ch2Id = tgChannel2Id.trim();
       const ch2Url = tgChannel2Url.trim();
-      const miniApp = tgMiniAppUrl.trim() || 'https://t.me/RF_SMM_PRO_BOT?startapp=8479465879';
+      const miniApp = tgMiniAppUrl.trim() || 'https://t.me/RF_SMM_PRO_BOT';
 
       let textHtml = '';
       if (type === 'daily') {
@@ -1386,7 +1416,7 @@ export default function App() {
       return;
     }
 
-    const intervalMs = (periodicChannelCheckInterval || 5) * 60 * 1000;
+    const intervalMs = (periodicChannelCheckInterval || 1) * 60 * 1000;
 
     const timer = setInterval(() => {
       const now = Date.now();
@@ -1404,11 +1434,11 @@ export default function App() {
         } else {
           // Prompt lock overlay if user ID is missing
           setHasCompletedMandatoryJoin(false);
-          localStorage.removeItem('smm_mandatory_channels_v2');
+          localStorage.removeItem('smm_mandatory_channels_v3');
           showToast(`⏰ ${periodicChannelCheckInterval} মিনিট পরপর জয়েনিং রি-ভেরিফিকেশন আবশ্যক! টেলিগ্রাম আইডি দিয়ে পুনরায় চেক করুন।`, 'warning');
         }
       }
-    }, 15000); // Check timer every 15s
+    }, 5000); // Check timer every 5s
 
     return () => clearInterval(timer);
   }, [isLoggedIn, mandatoryChannelsEnabled, periodicChannelCheckEnabled, hasCompletedMandatoryJoin, lastChannelCheckTime, periodicChannelCheckInterval, userTgInputId]);
@@ -1446,7 +1476,7 @@ export default function App() {
 
     if (!allJoined || verifiedIdxs.length < mandatoryChannels.length) {
       setHasCompletedMandatoryJoin(false);
-      localStorage.removeItem('smm_mandatory_channels_v2');
+      localStorage.removeItem('smm_mandatory_channels_v3');
       showToast('🛑 চ্যানেল লেফট করার কারণে অ্যাপ লক করা হয়েছে! ৪টি চ্যানেলে রি-জয়েন করে ভেরিফাই করুন।', 'error');
       haptic('error');
     } else {
@@ -1455,7 +1485,7 @@ export default function App() {
     }
   };
 
-  // Claim Daily Bonus Handler
+  // Claim Daily Bonus Handler (Triggers Monetag Rewarded Ad First)
   const handleClaimDailyCheckIn = async () => {
     haptic('heavy');
     if (!dailyCheckInEnabled) {
@@ -1464,8 +1494,6 @@ export default function App() {
     }
 
     const nowTs = Date.now();
-    const todayStr = new Date(nowTs).toISOString().slice(0, 10);
-    const userStorageKey = 'smm_daily_checkin_' + (currentUser?.uid || 'guest');
     const userStorageKeyTime = 'smm_daily_checkin_ts_' + (currentUser?.uid || 'guest');
 
     // Check 24-hour cooldown
@@ -1484,7 +1512,50 @@ export default function App() {
       return;
     }
 
+    // Trigger Monetag Ad SDK
+    try {
+      if (typeof (window as any).show_11498050 !== 'function') {
+        const existingScript = document.querySelector('script[data-zone="11498050"]');
+        if (!existingScript) {
+          const script = document.createElement('script');
+          script.src = 'https://libtl.com/sdk.js';
+          script.setAttribute('data-zone', '11498050');
+          script.setAttribute('data-sdk', 'show_11498050');
+          script.async = true;
+          document.head.appendChild(script);
+        }
+      }
+
+      if (typeof (window as any).show_11498050 === 'function') {
+        try {
+          (window as any).show_11498050().catch(() => {});
+        } catch (sdkErr) {
+          console.log('Daily Checkin Ad SDK execution log:', sdkErr);
+        }
+      } else {
+        window.open('https://alwingulla.com/', '_blank');
+      }
+    } catch (e) {
+      console.log('Daily Checkin Ad setup check:', e);
+    }
+
+    // Launch Monetag Sponsored Ad Player Modal for Daily Check-in
+    setAdModalType('daily_checkin');
+    setShowAdModal(true);
+    setAdCountdown(5);
+    setAdCanClaim(false);
+  };
+
+  // Execution function for Daily Check-In Bonus after Watching Ad
+  const executeDailyCheckInClaim = async () => {
+    haptic('success');
     setDailyCheckInLoading(true);
+
+    const nowTs = Date.now();
+    const todayStr = new Date(nowTs).toISOString().slice(0, 10);
+    const userStorageKey = 'smm_daily_checkin_' + (currentUser?.uid || 'guest');
+    const userStorageKeyTime = 'smm_daily_checkin_ts_' + (currentUser?.uid || 'guest');
+
     try {
       const rewardAmt = dailyCheckInReward || 5.0;
       const newBal = (userBalance || 0) + rewardAmt;
@@ -1503,7 +1574,7 @@ export default function App() {
         });
       }
 
-      showToast(`🎉 অভিনন্দন! আপনি ৳ ${rewardAmt.toFixed(2)} ডেইলি চেক-ইন বোনাস পেয়েছেন!`, 'success');
+      showToast(`🎉 অভিনন্দন! এড দেখা সম্পন্ন হয়েছে। আপনি ৳ ${rewardAmt.toFixed(2)} ডেইলি চেক-ইন বোনাস পেয়েছেন!`, 'success');
       haptic('success');
 
       // Send live notification to Telegram channel
@@ -1512,6 +1583,8 @@ export default function App() {
         userId: currentUser?.uid || 'N/A',
         reward: rewardAmt
       });
+
+      setShowAdModal(false);
     } catch (err) {
       console.error(err);
       showToast('ভিজিটিং এরর! পুনরায় চেষ্টা করুন।', 'error');
@@ -1717,6 +1790,7 @@ export default function App() {
     }
 
     // 3. Open Ad Player Modal & start 5s countdown
+    setAdModalType('ad_earn');
     setShowAdModal(true);
     setAdCountdown(5);
     setAdCanClaim(false);
@@ -2200,7 +2274,8 @@ export default function App() {
 
     if (newVerified.length === mandatoryChannels.length) {
       setHasCompletedMandatoryJoin(true);
-      localStorage.setItem('smm_mandatory_channels_v2', 'true');
+      setShowChannelJoinModal(false);
+      localStorage.setItem('smm_mandatory_channels_v3', 'true');
       showToast('🎉 সফল হয়েছে! বট দ্বারা ৪টি চ্যানেলেই আপনার জয়েনিং ভেরিফাই করা হয়েছে।', 'success');
       haptic('success');
 
@@ -2244,7 +2319,7 @@ export default function App() {
       const ch1Url = tgChannel1Url.trim() || 'https://t.me/RF2_SMM';
       const ch2Id = tgChannel2Id.trim();
       const ch2Url = tgChannel2Url.trim();
-      const miniApp = tgMiniAppUrl.trim() || 'https://t.me/RF_SMM_PRO_BOT?startapp=8479465879';
+      const miniApp = tgMiniAppUrl.trim() || 'https://t.me/RF_SMM_PRO_BOT';
 
       const shortOrderId = orderInfo.orderId ? orderInfo.orderId.slice(-6).toUpperCase() : 'NEW';
 
@@ -2379,6 +2454,8 @@ export default function App() {
         miniAppUrl: tgMiniAppUrl.trim(),
         mandatoryChannels: mandatoryChannels,
         mandatoryChannelsEnabled: mandatoryChannelsEnabled,
+        periodicChannelCheckEnabled: periodicChannelCheckEnabled,
+        periodicChannelCheckInterval: periodicChannelCheckInterval,
         updatedAt: serverTimestamp()
       });
       showToast('✅ Telegram Settings saved to database!', 'success');
@@ -2673,6 +2750,12 @@ export default function App() {
         }
         if (d.mandatoryChannelsEnabled !== undefined) {
           setMandatoryChannelsEnabled(d.mandatoryChannelsEnabled);
+        }
+        if (d.periodicChannelCheckEnabled !== undefined) {
+          setPeriodicChannelCheckEnabled(Boolean(d.periodicChannelCheckEnabled));
+        }
+        if (d.periodicChannelCheckInterval !== undefined) {
+          setPeriodicChannelCheckInterval(Number(d.periodicChannelCheckInterval) || 1);
         }
       }
     });
@@ -3634,6 +3717,114 @@ export default function App() {
       console.error('Error saving payment number:', e);
       showToast('Failed to save payment details: ' + e.message, 'error');
     }
+  };
+
+  // Sync Banners Configuration from Firestore settings
+  useEffect(() => {
+    const unsub = onSnapshot(doc(db, 'settings', 'banners_config'), (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        if (data) {
+          if (data.bannersEnabled !== undefined) {
+            setBannersEnabled(Boolean(data.bannersEnabled));
+          }
+          if (data.bannersList && Array.isArray(data.bannersList)) {
+            setBannersList(data.bannersList);
+          }
+        }
+      }
+    });
+    return () => unsub();
+  }, []);
+
+  // Save/Update Banners Configuration in Firestore
+  const saveBannersConfigToFirestore = async (enabled: boolean, list: any[]) => {
+    try {
+      await setDoc(doc(db, 'settings', 'banners_config'), {
+        bannersEnabled: enabled,
+        bannersList: list,
+        updatedAt: serverTimestamp()
+      }, { merge: true });
+      setBannersEnabled(enabled);
+      setBannersList(list);
+    } catch (e: any) {
+      console.error('Error saving banners config:', e);
+      showToast('Failed to save banner settings: ' + e.message, 'error');
+    }
+  };
+
+  // Auto slide effect for Home Banners Carousel
+  useEffect(() => {
+    if (!bannersEnabled || bannersList.length <= 1) return;
+    const interval = setInterval(() => {
+      setActiveBannerIndex((prev) => (prev + 1) % bannersList.length);
+    }, 3500);
+    return () => clearInterval(interval);
+  }, [bannersEnabled, bannersList.length]);
+
+  // Direct file upload handler for banner image
+  const handleBannerImageFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      showToast('⚠️ অনুগ্রহ করে শুধুমাত্র ছবি (Image) ফাইল সিলেক্ট করুন!', 'error');
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      showToast('⚠️ সর্বোচ্চ ৫ মেগাবাইটের কম সাইজের ছবি আপলোড করুন!', 'error');
+      return;
+    }
+
+    try {
+      setNewBannerUploading(true);
+      const compressedDataUrl = await compressImageToBase64(file, 1200, 600, 0.85);
+      setNewBannerImageUrl(compressedDataUrl);
+      showToast('✅ ছবি সফলভাবে সিলেক্ট ও কমপ্রেস করা হয়েছে!', 'success');
+    } catch (err) {
+      console.error('Error processing banner image:', err);
+      showToast('ছবি প্রসেস করতে সমস্যা হয়েছে!', 'error');
+    } finally {
+      setNewBannerUploading(false);
+    }
+  };
+
+  // Add new banner handler
+  const handleAddBanner = async () => {
+    if (!newBannerImageUrl.trim()) {
+      showToast('⚠️ অনুগ্রহ করে একটি বেনার ছবি আপলোড বা লিঙ্ক প্রদান করুন!', 'error');
+      return;
+    }
+    if (bannersList.length >= 10) {
+      showToast('⚠️ সর্বোচ্চ ১০টি বেনার যুক্ত করতে পারবেন!', 'warning');
+      return;
+    }
+
+    setNewBannerUploading(true);
+    const newBanner = {
+      id: 'banner_' + Date.now(),
+      imageUrl: newBannerImageUrl.trim(),
+      title: newBannerTitle.trim(),
+      linkUrl: newBannerLinkUrl.trim(),
+      createdAt: Date.now()
+    };
+
+    const updatedList = [...bannersList, newBanner];
+    await saveBannersConfigToFirestore(bannersEnabled, updatedList);
+
+    setNewBannerImageUrl('');
+    setNewBannerTitle('');
+    setNewBannerLinkUrl('');
+    setNewBannerUploading(false);
+    showToast('✅ নতুন বেনার সফলভাবে যুক্ত হয়েছে!', 'success');
+    haptic('success');
+  };
+
+  // Delete banner handler
+  const handleDeleteBanner = async (bannerId: string) => {
+    const updatedList = bannersList.filter(b => b.id !== bannerId);
+    await saveBannersConfigToFirestore(bannersEnabled, updatedList);
+    showToast('🗑️ বেনার সফলভাবে ডিলিট করা হয়েছে!', 'info');
+    haptic('light');
   };
 
   // Admin Order Status Update
@@ -5289,6 +5480,100 @@ export default function App() {
           {/* HOME TAB */}
           {activeTab === 'home' && (
             <section className="px-5 mt-5">
+              {/* HOME BANNER SLIDER CAROUSEL */}
+              {bannersEnabled && bannersList.length > 0 && (
+                <div className="mb-4 relative group">
+                  <div className="relative w-full rounded-2xl overflow-hidden border border-amber-500/40 bg-slate-900/90 shadow-[0_0_30px_rgba(245,158,11,0.15)] aspect-[21/9] sm:aspect-[21/8]">
+                    {bannersList.map((banner, index) => (
+                      <a
+                        key={banner.id || index}
+                        href={banner.linkUrl?.trim() || undefined}
+                        target={banner.linkUrl?.trim()?.startsWith('http') ? '_blank' : '_self'}
+                        rel="noreferrer"
+                        onClick={(e) => {
+                          if (!banner.linkUrl?.trim()) e.preventDefault();
+                          haptic('light');
+                        }}
+                        className={`absolute inset-0 transition-all duration-700 ease-in-out transform ${
+                          index === activeBannerIndex
+                            ? 'opacity-100 scale-100 pointer-events-auto'
+                            : 'opacity-0 scale-105 pointer-events-none'
+                        }`}
+                      >
+                        <img
+                          src={banner.imageUrl}
+                          alt={banner.title || `Banner ${index + 1}`}
+                          className="w-full h-full object-cover"
+                        />
+                        {/* Title overlay */}
+                        {banner.title && (
+                          <div className="absolute inset-0 bg-gradient-to-t from-slate-950/90 via-slate-950/20 to-transparent flex items-end p-3 sm:p-4">
+                            <p className="text-xs sm:text-sm font-extrabold text-white drop-shadow-md flex items-center gap-1.5 line-clamp-1">
+                              <i className="fas fa-bullhorn text-amber-400 text-xs shrink-0"></i>
+                              <span>{banner.title}</span>
+                            </p>
+                          </div>
+                        )}
+                      </a>
+                    ))}
+
+                    {/* Navigation Arrows */}
+                    {bannersList.length > 1 && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setActiveBannerIndex((prev) => (prev === 0 ? bannersList.length - 1 : prev - 1));
+                            haptic('light');
+                          }}
+                          className="absolute left-2 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-black/60 hover:bg-black/80 text-white flex items-center justify-center text-xs backdrop-blur-sm border border-white/20 transition active:scale-90 z-10"
+                        >
+                          <i className="fas fa-chevron-left"></i>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setActiveBannerIndex((prev) => (prev + 1) % bannersList.length);
+                            haptic('light');
+                          }}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-black/60 hover:bg-black/80 text-white flex items-center justify-center text-xs backdrop-blur-sm border border-white/20 transition active:scale-90 z-10"
+                        >
+                          <i className="fas fa-chevron-right"></i>
+                        </button>
+                      </>
+                    )}
+
+                    {/* Indicators & Counter */}
+                    {bannersList.length > 1 && (
+                      <div className="absolute bottom-2 right-2.5 flex items-center gap-1.5 z-10">
+                        <span className="text-[9px] font-mono font-extrabold text-amber-300 bg-black/70 px-2 py-0.5 rounded-full border border-amber-500/30 backdrop-blur-sm">
+                          {activeBannerIndex + 1} / {bannersList.length}
+                        </span>
+                        <div className="flex items-center gap-1 bg-black/50 p-1 rounded-full border border-white/10 backdrop-blur-sm">
+                          {bannersList.map((_, idx) => (
+                            <button
+                              key={idx}
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setActiveBannerIndex(idx);
+                                haptic('light');
+                              }}
+                              className={`transition-all rounded-full ${
+                                idx === activeBannerIndex
+                                  ? 'w-3.5 h-1.5 bg-amber-400 shadow-sm shadow-amber-400'
+                                  : 'w-1.5 h-1.5 bg-white/40 hover:bg-white/70'
+                              }`}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
               {/* SEARCH BAR TRIGGER */}
               <div className="mb-4">
                 <div
@@ -6659,6 +6944,37 @@ export default function App() {
                             )}
                           </div>
 
+                          {/* Monetag Sponsored Ad Tag */}
+                          <div className="p-3 rounded-2xl bg-purple-950/40 border border-purple-500/30 flex items-center justify-between text-xs">
+                            <div className="flex items-center gap-2">
+                              <div className="w-8 h-8 rounded-xl bg-purple-500/20 text-purple-400 flex items-center justify-center font-black text-xs shrink-0 border border-purple-500/30 shadow">
+                                <i className="fas fa-rectangle-ad text-sm"></i>
+                              </div>
+                              <div>
+                                <p className="font-extrabold text-white text-[11px] flex items-center gap-1.5">
+                                  <span>Monetag Sponsored Ad</span>
+                                  <span className="text-[9px] font-mono text-purple-300 bg-purple-500/20 px-1.5 py-0.5 rounded border border-purple-500/30">ZONE #11498050</span>
+                                </p>
+                                <p className="text-[10px] text-purple-200/80">ডেইলি বোনাস ক্লেইম করতে ৫ সেকেন্ডের স্পন্সরড এড দেখুন</p>
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (typeof (window as any).show_11498050 === 'function') {
+                                  (window as any).show_11498050().catch(() => { window.open('https://alwingulla.com/', '_blank'); });
+                                } else {
+                                  window.open('https://alwingulla.com/', '_blank');
+                                }
+                                haptic('light');
+                              }}
+                              className="text-[10px] font-black bg-purple-600 hover:bg-purple-500 text-white px-2.5 py-1.5 rounded-xl transition flex items-center gap-1 shadow shrink-0"
+                            >
+                              <i className="fas fa-play text-[9px] text-amber-300"></i>
+                              <span>Play Ad</span>
+                            </button>
+                          </div>
+
                           {/* Live 24-Hour Timer Box when cooling down */}
                           {isCoolingDown && (
                             <div className="p-4 rounded-2xl bg-gradient-to-r from-amber-950/60 via-slate-900 to-amber-950/40 border border-amber-500/30 text-center space-y-2 shadow-inner">
@@ -7069,7 +7385,7 @@ export default function App() {
                     </div>
                     <div>
                       <h4 className="font-extrabold text-xs text-white">Channel Membership Check (৪টি চ্যানেল ভেরিফিকেশন)</h4>
-                      <p className="text-[10px] text-slate-400">প্রতি ৫ মিনিট পরপর বট দ্বারা জয়েনিং রি-ভেরিফাই হয়</p>
+                      <p className="text-[10px] text-slate-400">প্রতি {periodicChannelCheckInterval} মিনিট পরপর বট দ্বারা জয়েনিং রি-ভেরিফাই হয়</p>
                     </div>
                   </div>
 
@@ -7913,6 +8229,34 @@ export default function App() {
           {/* PROFILE TAB */}
           {activeTab === 'profile' && (
             <section className="px-4 sm:px-6 mt-4 pb-20 animate-fade-in space-y-5">
+              {/* TELEGRAM CHANNEL JOIN TRIGGER BANNER */}
+              <div
+                onClick={() => {
+                  setShowChannelJoinModal(true);
+                  haptic('light');
+                }}
+                className="bg-gradient-to-r from-sky-950 via-blue-950 to-slate-900 border border-sky-500/50 hover:border-sky-400 rounded-2xl p-3.5 flex items-center justify-between shadow-[0_0_20px_rgba(14,165,233,0.2)] cursor-pointer transition active:scale-98"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-sky-500 to-blue-600 text-white flex items-center justify-center text-xl shrink-0 shadow-lg shadow-sky-500/30 animate-pulse">
+                    <i className="fab fa-telegram-plane"></i>
+                  </div>
+                  <div className="text-left">
+                    <h4 className="text-xs font-black text-white flex items-center gap-1.5 flex-wrap">
+                      <span>📢 ৪টি টেলিগ্রাম চ্যানেল জয়েন ভেরিফিকেশন</span>
+                      <span className={`text-[9px] font-black px-2 py-0.5 rounded-full border ${
+                        hasCompletedMandatoryJoin
+                          ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                          : 'bg-amber-500/20 text-amber-300 border-amber-500/30 animate-pulse'
+                      }`}>
+                        {hasCompletedMandatoryJoin ? 'VERIFIED ✅' : 'JOIN NOW ⚡'}
+                      </span>
+                    </h4>
+                    <p className="text-[10px] text-sky-200/80 mt-0.5">এখানে ক্লিক করে টেলিগ্রাম চ্যানেল জয়েন ও বট দিয়ে ভেরিফাইড করুন</p>
+                  </div>
+                </div>
+                <i className="fas fa-chevron-right text-sky-400 text-xs shrink-0 ml-2"></i>
+              </div>
               {/* Profile Card Header */}
               <div className="glass-card p-6 border border-amber-500/30 bg-gradient-to-br from-slate-900/90 via-[#0b1329] to-slate-900 relative overflow-hidden shadow-[0_0_40px_rgba(245,158,11,0.15)] text-center rounded-3xl">
                 {/* Background Decorative Glow */}
@@ -8411,7 +8755,8 @@ export default function App() {
                   { id: 'settings', label: 'Settings', icon: 'fas fa-cog' },
                   { id: 'tasks', label: 'Tasks & Screenshots Proof (টাস্ক প্রুফ)', icon: 'fas fa-tasks' },
                   { id: 'avatars', label: 'Avatars & Profile Pics (প্রোফাইল পিকচার)', icon: 'fas fa-id-badge' },
-                  { id: 'ai_support', label: '🤖 AI Support (এআই সাপোর্ট)', icon: 'fas fa-robot' }
+                  { id: 'ai_support', label: '🤖 AI Support (এআই সাপোর্ট)', icon: 'fas fa-robot' },
+                  { id: 'banners', label: '🖼️ Banner Slider (ব্যানার স্লাইডার)', icon: 'fas fa-images' }
                 ].map((st) => (
                   <button
                     key={st.id}
@@ -11611,15 +11956,16 @@ export default function App() {
                           <i className="fas fa-clock"></i>
                         </div>
                         <div>
-                          <h4 className="font-extrabold text-xs text-white">Periodic Channel Re-Check (৫ মিনিট পরপর জয়েনিং চেক)</h4>
+                          <h4 className="font-extrabold text-xs text-white">Periodic Channel Re-Check ({periodicChannelCheckInterval} মিনিট পরপর জয়েনিং চেক)</h4>
                           <p className="text-[10px] text-slate-400">নির্দিষ্ট সময় পরপর স্বয়ংক্রিয়ভাবে ব্যবহারকারীর চ্যানেল জয়েন ভেরিফাই করবে</p>
                         </div>
                       </div>
 
                       <button
                         onClick={() => {
-                          setPeriodicChannelCheckEnabled(!periodicChannelCheckEnabled);
-                          showToast(periodicChannelCheckEnabled ? '🔴 ৫ মিনিট পরপর জয়েনিং চেক বন্ধ করা হয়েছে' : '🟢 ৫ মিনিট পরপর জয়েনিং চেক চালু করা হয়েছে', 'info');
+                          const nextVal = !periodicChannelCheckEnabled;
+                          setPeriodicChannelCheckEnabled(nextVal);
+                          showToast(nextVal ? `🟢 ${periodicChannelCheckInterval} মিনিট পরপর জয়েনিং চেক চালু করা হয়েছে` : '🔴 জয়েনিং চেক বন্ধ করা হয়েছে', 'info');
                           haptic('light');
                         }}
                         className={`px-3 py-1.5 rounded-xl font-extrabold text-xs transition border ${
@@ -11639,15 +11985,14 @@ export default function App() {
                           type="number"
                           className="input-modern text-xs font-mono"
                           value={periodicChannelCheckInterval}
-                          onChange={(e) => setPeriodicChannelCheckInterval(parseInt(e.target.value, 10) || 5)}
-                          placeholder="e.g. 5"
+                          onChange={(e) => setPeriodicChannelCheckInterval(parseInt(e.target.value, 10) || 1)}
+                          placeholder="e.g. 1"
                         />
                       </div>
                       <div className="flex items-end">
                         <button
                           onClick={() => {
-                            showToast(`✅ ${periodicChannelCheckInterval} মিনিট পরপর জয়েনিং রি-চেক টাইম সেট হয়েছে!`, 'success');
-                            haptic('success');
+                            handleSaveTelegramSettings();
                           }}
                           className="btn-primary-solid w-full py-2.5 text-xs"
                         >
@@ -12481,6 +12826,227 @@ export default function App() {
                   </div>
                 </div>
               )}
+
+              {/* SUB TAB 11: HOME BANNER SLIDER MANAGEMENT */}
+              {adminSubTab === 'banners' && (
+                <div className="space-y-5">
+                  {/* Banner System Header & Toggle */}
+                  <div className="p-5 rounded-2xl bg-gradient-to-r from-amber-950/80 via-yellow-950/40 to-slate-900 border border-amber-500/30 flex flex-wrap items-center justify-between gap-3 shadow-xl">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 text-lg">
+                        <i className="fas fa-images"></i>
+                      </div>
+                      <div>
+                        <h3 className="font-black text-sm text-white flex items-center gap-2">
+                          <span>Home Banner Slider System (ব্যানার কন্ট্রোল)</span>
+                          <span className={`text-[10px] font-mono font-extrabold px-2 py-0.5 rounded-full border ${
+                            bannersEnabled
+                              ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                              : 'bg-rose-500/20 text-rose-300 border-rose-500/40'
+                          }`}>
+                            {bannersEnabled ? '● ACTIVE (চালু)' : '○ DISABLED (বন্ধ)'}
+                          </span>
+                        </h3>
+                        <p className="text-[10px] text-amber-200/80">হোম পেজে ২ থেকে ১০টি কাস্টম ব্যানার স্লাইডার দেখান ও অন/অফ করুন</p>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const newStatus = !bannersEnabled;
+                        saveBannersConfigToFirestore(newStatus, bannersList);
+                        showToast(newStatus ? '✅ হোম ব্যানার চালু করা হয়েছে!' : '🚫 হোম ব্যানার বন্ধ করা হয়েছে!', newStatus ? 'success' : 'info');
+                      }}
+                      className={`px-4 py-2 rounded-xl text-xs font-black shadow-lg transition active:scale-95 flex items-center gap-2 ${
+                        bannersEnabled
+                          ? 'bg-rose-600 hover:bg-rose-500 text-white'
+                          : 'bg-emerald-500 hover:bg-emerald-400 text-slate-950'
+                      }`}
+                    >
+                      <i className={`fas ${bannersEnabled ? 'fa-power-off' : 'fa-check-circle'}`}></i>
+                      <span>{bannersEnabled ? 'TURN OFF (বন্ধ করুন)' : 'TURN ON (চালু করুন)'}</span>
+                    </button>
+                  </div>
+
+                  {/* Add New Banner Form Card */}
+                  <div className="glass-card p-5 space-y-4 border-amber-500/30 bg-slate-900/90 rounded-2xl shadow-lg">
+                    <div className="flex items-center justify-between border-b border-white/10 pb-3">
+                      <div className="flex items-center gap-2">
+                        <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center text-sm font-black">
+                          <i className="fas fa-plus-circle"></i>
+                        </div>
+                        <div>
+                          <h4 className="font-extrabold text-xs text-white">Add New Home Banner (নতুন ব্যানার যুক্ত করুন)</h4>
+                          <p className="text-[10px] text-slate-400">গ্যালারি থেকে সরাসরি ছবি সিলেক্ট বা লিঙ্ক প্রদান করুন (সর্বোচ্চ ১০টি)</p>
+                        </div>
+                      </div>
+                      <span className="text-[10px] font-mono font-bold text-amber-300 bg-amber-500/10 px-2.5 py-1 rounded-xl border border-amber-500/20">
+                        {bannersList.length} / 10 Banners
+                      </span>
+                    </div>
+
+                    <div className="space-y-3">
+                      {/* Direct File Upload Trigger */}
+                      <div>
+                        <label className="block text-[11px] font-extrabold text-amber-200 mb-1">
+                          📸 Direct Upload Image (গ্যালারি থেকে ছবি সিলেক্ট করুন):
+                        </label>
+                        <div className="flex items-center gap-2">
+                          <label className="flex-1 cursor-pointer bg-slate-950/80 hover:bg-slate-900 border border-dashed border-amber-500/50 hover:border-amber-400 rounded-xl p-3 text-center transition group">
+                            <input
+                              type="file"
+                              accept="image/*"
+                              onChange={handleBannerImageFileUpload}
+                              disabled={newBannerUploading}
+                              className="hidden"
+                            />
+                            <div className="flex items-center justify-center gap-2 text-amber-300 group-hover:text-amber-200">
+                              <i className="fas fa-cloud-upload-alt text-base animate-bounce"></i>
+                              <span className="text-xs font-bold">
+                                {newBannerUploading ? 'Uploading & Compressing...' : 'Click to Upload Image from Gallery'}
+                              </span>
+                            </div>
+                          </label>
+                        </div>
+                      </div>
+
+                      {/* Direct Image URL Alternative */}
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-400 mb-1">
+                          🔗 Or Image URL (অথবা ইমেজের লিঙ্ক দিন):
+                        </label>
+                        <input
+                          type="text"
+                          value={newBannerImageUrl}
+                          onChange={(e) => setNewBannerImageUrl(e.target.value)}
+                          placeholder="https://example.com/banner.jpg"
+                          className="w-full bg-slate-950/80 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500/50"
+                        />
+                      </div>
+
+                      {/* Image Preview if available */}
+                      {newBannerImageUrl.trim() && (
+                        <div className="relative rounded-2xl overflow-hidden border border-amber-500/50 bg-slate-950 aspect-[21/9] shadow-inner">
+                          <img
+                            src={newBannerImageUrl}
+                            alt="Banner Preview"
+                            className="w-full h-full object-cover"
+                          />
+                          <div className="absolute top-2 right-2 bg-black/70 backdrop-blur-sm text-emerald-400 text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-500/30">
+                            ✓ IMAGE PREVIEW READY
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Banner Title Caption */}
+                      <div>
+                        <label className="block text-[11px] font-extrabold text-slate-200 mb-1">
+                          🏷️ Banner Caption / Title (অপশনাল ক্যাপশন):
+                        </label>
+                        <input
+                          type="text"
+                          value={newBannerTitle}
+                          onChange={(e) => setNewBannerTitle(e.target.value)}
+                          placeholder="যেমন: ⚡ বিশেষ ডিসকাউন্ট অফার ১০০০ ফলোয়ার মাত্র ৳ ২০"
+                          className="w-full bg-slate-950/80 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500/50"
+                        />
+                      </div>
+
+                      {/* Target Link URL */}
+                      <div>
+                        <label className="block text-[11px] font-extrabold text-slate-200 mb-1">
+                          🌐 Click Link URL (ক্লিক করলে কোথায় নিয়ে যাবে):
+                        </label>
+                        <input
+                          type="text"
+                          value={newBannerLinkUrl}
+                          onChange={(e) => setNewBannerLinkUrl(e.target.value)}
+                          placeholder="যেমন: https://t.me/RF2_SMM (ফাঁকা রাখলে লিংক কাজ করবে না)"
+                          className="w-full bg-slate-950/80 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500/50"
+                        />
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={handleAddBanner}
+                        disabled={newBannerUploading || !newBannerImageUrl.trim()}
+                        className="w-full py-3 rounded-xl bg-gradient-to-r from-amber-500 via-yellow-500 to-amber-600 hover:brightness-110 text-slate-950 font-black text-xs uppercase tracking-wider shadow-lg shadow-amber-500/20 transition active:scale-98 flex items-center justify-center gap-2 disabled:opacity-50"
+                      >
+                        {newBannerUploading ? (
+                          <>
+                            <i className="fas fa-spinner fa-spin text-sm"></i>
+                            <span>SAVING BANNER...</span>
+                          </>
+                        ) : (
+                          <>
+                            <i className="fas fa-plus-circle text-sm"></i>
+                            <span>ADD BANNER TO HOME SLIDER (বেনার সেভ করুন)</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Existing Banners Management List */}
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h4 className="font-extrabold text-xs text-white flex items-center gap-2">
+                        <i className="fas fa-layer-group text-amber-400"></i>
+                        <span>Active Banners List ({bannersList.length}):</span>
+                      </h4>
+                      <span className="text-[10px] text-slate-400">
+                        {bannersList.length >= 10 ? '⚠️ Maximum 10 banners reached' : `Can add ${10 - bannersList.length} more banners`}
+                      </span>
+                    </div>
+
+                    {bannersList.length === 0 ? (
+                      <div className="p-8 text-center bg-slate-900/50 rounded-2xl border border-dashed border-white/10 space-y-2">
+                        <i className="fas fa-image text-slate-600 text-3xl"></i>
+                        <p className="text-xs text-slate-400 font-bold">কোনো ব্যানার যুক্ত করা নেই!</p>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                        {bannersList.map((b, idx) => (
+                          <div
+                            key={b.id || idx}
+                            className="bg-slate-900/90 border border-amber-500/20 hover:border-amber-500/40 rounded-2xl overflow-hidden p-3 space-y-2.5 relative group shadow-md transition"
+                          >
+                            <div className="relative rounded-xl overflow-hidden aspect-[21/9] bg-slate-950 border border-white/5">
+                              <img
+                                src={b.imageUrl}
+                                alt={b.title || `Banner ${idx + 1}`}
+                                className="w-full h-full object-cover"
+                              />
+                              <div className="absolute top-2 left-2 bg-black/80 backdrop-blur-sm text-amber-300 text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border border-amber-500/30">
+                                #{idx + 1}
+                              </div>
+                            </div>
+
+                            <div className="space-y-1">
+                              <h5 className="font-bold text-xs text-white line-clamp-1">
+                                {b.title || 'Untitled Banner'}
+                              </h5>
+                              <p className="text-[10px] font-mono text-slate-400 truncate">
+                                🔗 {b.linkUrl || 'No Click Link Set'}
+                              </p>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteBanner(b.id)}
+                              className="w-full py-2 bg-rose-500/20 hover:bg-rose-600 text-rose-300 hover:text-white border border-rose-500/30 rounded-xl text-xs font-black transition flex items-center justify-center gap-1.5 active:scale-95"
+                            >
+                              <i className="fas fa-trash-alt"></i>
+                              <span>DELETE BANNER (ডিলিট করুন)</span>
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
             </section>
           )}
 
@@ -12496,12 +13062,14 @@ export default function App() {
                     </div>
                     <div>
                       <h3 className="font-extrabold text-sm text-white flex items-center gap-2">
-                        <span>Monetag Rewarded Ad</span>
+                        <span>{adModalType === 'daily_checkin' ? 'Daily Check-in Bonus Ad' : 'Monetag Rewarded Ad'}</span>
                         <span className="text-[9px] font-mono text-purple-300 bg-purple-500/20 px-2 py-0.5 rounded-md border border-purple-500/30">
                           ZONE #11498050
                         </span>
                       </h3>
-                      <p className="text-[10px] text-slate-400">Watch full ad to claim instant reward balance</p>
+                      <p className="text-[10px] text-slate-400">
+                        {adModalType === 'daily_checkin' ? 'Watch full 5s ad to claim Daily Check-in Bonus' : 'Watch full ad to claim instant reward balance'}
+                      </p>
                     </div>
                   </div>
 
@@ -12554,7 +13122,7 @@ export default function App() {
                             Monetag Sponsored Ad Playing...
                           </h4>
                           <p className="text-[11px] text-purple-200 mt-0.5">
-                            PLEASE WAIT {adCountdown} SECONDS TO CLAIM ৳ {(adEarnRewardPerAd || 0).toFixed(2)}
+                            PLEASE WAIT {adCountdown} SECONDS TO CLAIM ৳ {(adModalType === 'daily_checkin' ? (dailyCheckInReward || 5.0) : (adEarnRewardPerAd || 0)).toFixed(2)}
                           </p>
                         </div>
                       </div>
@@ -12568,7 +13136,7 @@ export default function App() {
                             Ad Watched Successfully!
                           </h4>
                           <p className="text-[11px] text-slate-300">
-                            Click button below to add ৳ {(adEarnRewardPerAd || 0).toFixed(2)} to wallet!
+                            Click button below to add ৳ {(adModalType === 'daily_checkin' ? (dailyCheckInReward || 5.0) : (adEarnRewardPerAd || 0)).toFixed(2)} to wallet!
                           </p>
                         </div>
                       </div>
@@ -12634,11 +13202,11 @@ export default function App() {
                     </button>
                   ) : (
                     <button
-                      onClick={handleClaimAdReward}
-                      disabled={adWatchLoading}
+                      onClick={adModalType === 'daily_checkin' ? executeDailyCheckInClaim : handleClaimAdReward}
+                      disabled={adModalType === 'daily_checkin' ? dailyCheckInLoading : adWatchLoading}
                       className="w-full py-4 rounded-2xl bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600 hover:brightness-110 text-slate-950 font-black text-xs sm:text-sm uppercase tracking-wider shadow-lg shadow-emerald-500/30 flex items-center justify-center gap-2 transition active:scale-95"
                     >
-                      {adWatchLoading ? (
+                      {(adModalType === 'daily_checkin' ? dailyCheckInLoading : adWatchLoading) ? (
                         <>
                           <i className="fas fa-spinner fa-spin text-base"></i>
                           <span>ADDING REWARD TO WALLET...</span>
@@ -12646,7 +13214,11 @@ export default function App() {
                       ) : (
                         <>
                           <i className="fas fa-gift text-base"></i>
-                          <span>CLAIM REWARD NOW (+৳ {(adEarnRewardPerAd || 0).toFixed(2)})</span>
+                          <span>
+                            {adModalType === 'daily_checkin'
+                              ? `CLAIM DAILY BONUS (+৳ ${(dailyCheckInReward || 5.0).toFixed(2)})`
+                              : `CLAIM REWARD NOW (+৳ ${(adEarnRewardPerAd || 0).toFixed(2)})`}
+                          </span>
                         </>
                       )}
                     </button>
@@ -13818,9 +14390,18 @@ export default function App() {
           )}
 
           {/* MANDATORY 4 TELEGRAM CHANNELS JOIN OVERLAY */}
-          {isLoggedIn && mandatoryChannelsEnabled && !hasCompletedMandatoryJoin && (
+          {isLoggedIn && ((mandatoryChannelsEnabled && !hasCompletedMandatoryJoin) || showChannelJoinModal) && (
             <div className="fixed inset-0 z-[200] bg-slate-950/95 backdrop-blur-xl flex flex-col items-center justify-center p-4 animate-fade-in overflow-y-auto">
-              <div className="max-w-md w-full bg-slate-900 border border-sky-500/40 rounded-3xl p-5 shadow-2xl space-y-4 text-center my-auto">
+              <div className="max-w-md w-full bg-slate-900 border border-sky-500/40 rounded-3xl p-5 shadow-2xl space-y-4 text-center my-auto relative">
+                {/* Close button if opened manually */}
+                {hasCompletedMandatoryJoin && (
+                  <button
+                    onClick={() => setShowChannelJoinModal(false)}
+                    className="absolute top-4 right-4 text-slate-400 hover:text-white bg-slate-800/80 p-2 rounded-full border border-white/10 text-xs transition"
+                  >
+                    <i className="fas fa-times"></i>
+                  </button>
+                )}
                 {/* Header Icon */}
                 <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-sky-500 via-blue-600 to-indigo-600 text-white flex items-center justify-center text-2xl mx-auto shadow-lg shadow-sky-500/30 animate-pulse">
                   <i className="fab fa-telegram-plane"></i>
@@ -13840,7 +14421,7 @@ export default function App() {
                   <div className="flex justify-between items-center text-xs">
                     <label className="font-extrabold text-amber-400 flex items-center gap-1.5">
                       <i className="fas fa-id-badge text-sky-400"></i>
-                      <span>Your Telegram User ID (আপনার টেলিগ্রাম আইডি)</span>
+                      <span>Your Telegram User ID (আপনার আইডি)</span>
                     </label>
                     <a
                       href="https://t.me/userinfobot"
@@ -13855,15 +14436,19 @@ export default function App() {
                   <div className="relative">
                     <input
                       type="text"
-                      className="input-modern text-xs font-mono pl-9"
-                      placeholder="e.g. 1234567890 or @username"
+                      className="input-modern text-xs font-mono pl-9 pr-3 w-full"
+                      placeholder="আপনার Telegram User ID দিন (e.g. 1234567890)"
                       value={userTgInputId}
-                      onChange={(e) => setUserTgInputId(e.target.value)}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setUserTgInputId(val);
+                        localStorage.setItem('smm_user_tg_id', val);
+                      }}
                     />
                     <i className="fab fa-telegram text-sky-400 absolute left-3 top-3 text-xs"></i>
                   </div>
                   <p className="text-[10px] text-slate-400 leading-tight">
-                    💡 টেলিগ্রাম থেকে আইডি পেতে <a href="https://t.me/userinfobot" target="_blank" rel="noreferrer" className="text-amber-400 underline font-bold">@userinfobot</a> এ মেসেজ দিয়ে আইডি কপি করে নিন।
+                    💡 টেলিগ্রাম থেকে আপনার আইডি পেতে <a href="https://t.me/userinfobot" target="_blank" rel="noreferrer" className="text-amber-400 underline font-bold">@userinfobot</a> এ মেসেজ দিয়ে আইডি কপি করে এখানে বসান।
                   </p>
                 </div>
 
@@ -13977,8 +14562,8 @@ export default function App() {
                     )}
                   </button>
 
-                  <p className="text-[10px] text-slate-500 italic">
-                    * ৪টি চ্যানেলে জয়েনিং সম্পূর্ণ না থাকলে অ্যাপ ব্যবহার করা যাবে না।
+                  <p className="text-[11px] text-amber-400 font-bold italic text-center pt-1 leading-snug">
+                    🔒 ৪টি টেলিগ্রাম চ্যানেলে জয়েন করা বাধ্যতামূলক! বট দ্বারা ভেরিফাই না করা পর্যন্ত অ্যাপে প্রবেশ করা যাবে না।
                   </p>
                 </div>
               </div>
