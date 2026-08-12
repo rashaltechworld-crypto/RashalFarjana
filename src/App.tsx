@@ -32,6 +32,8 @@ interface OrderData {
   id: string;
   uid: string;
   service: string;
+  serviceId?: string;
+  serviceCode?: string;
   qty: number;
   link: string;
   cost: number;
@@ -427,7 +429,7 @@ export default function App() {
   const [authSubmitting, setAuthSubmitting] = useState(false);
 
   // Main App State
-  const [activeTab, setActiveTab] = useState<'home' | 'orders' | 'funds' | 'profile' | 'admin'>('home');
+  const [activeTab, setActiveTab] = useState<'home' | 'orders' | 'tasks' | 'funds' | 'profile' | 'admin' | 'api'>('home');
   const [currentTheme, setCurrentTheme] = useState<ThemeType>(() => {
     const saved = localStorage.getItem('smm_app_theme') as ThemeType;
     return saved || 'default';
@@ -489,7 +491,23 @@ export default function App() {
   const [allDepositRequests, setAllDepositRequests] = useState<DepositRequest[]>([]);
 
   // Admin Manual Service Form & Control State
-  const [adminSubTab, setAdminSubTab] = useState<'users' | 'spin' | 'daily' | 'ads' | 'promo' | 'payment' | 'deposits' | 'trx_maker' | 'orders' | 'services' | 'notifications' | 'notice' | 'links' | 'settings' | 'tasks' | 'avatars' | 'ai_support' | 'banners'>('users');
+  const [adminSubTab, setAdminSubTab] = useState<'users' | 'spin' | 'daily' | 'ads' | 'promo' | 'payment' | 'deposits' | 'trx_maker' | 'orders' | 'services' | 'notifications' | 'notice' | 'links' | 'settings' | 'tasks' | 'avatars' | 'ai_support' | 'banners' | 'api'>('users');
+
+  // User & Reseller API System State
+  const [apiSystemEnabled, setApiSystemEnabled] = useState<boolean>(() => {
+    return localStorage.getItem('smm_api_system_enabled') !== 'false';
+  });
+  const [userApiKey, setUserApiKey] = useState<string>(() => {
+    return localStorage.getItem('smm_user_api_key') || '';
+  });
+  const [apiKeyHidden, setApiKeyHidden] = useState<boolean>(true);
+  const [apiTestingAction, setApiTestingAction] = useState<'balance' | 'services' | 'add' | 'status' | 'refill' | 'cancel'>('balance');
+  const [apiTestServiceId, setApiTestServiceId] = useState<string>('101');
+  const [apiTestLink, setApiTestLink] = useState<string>('https://facebook.com/example');
+  const [apiTestQty, setApiTestQty] = useState<number>(1000);
+  const [apiTestOrderId, setApiTestOrderId] = useState<string>('104821');
+  const [apiTestResult, setApiTestResult] = useState<string | null>(null);
+  const [apiTestRunning, setApiTestRunning] = useState<boolean>(false);
 
   // AI Support System State
   const [aiSupportEnabled, setAiSupportEnabled] = useState<boolean>(() => {
@@ -2307,6 +2325,7 @@ export default function App() {
     orderId: string;
     userName: string;
     serviceName: string;
+    serviceCode?: string;
     quantity: number;
     cost: number;
     link: string;
@@ -2326,6 +2345,7 @@ export default function App() {
       const textHtml = `🛍️ <b>NEW LIVE ORDER PLACED!</b>\n` +
         `━━━━━━━━━━━━━━━━━━━\n` +
         `🆔 <b>Order ID:</b> <code>#${escapeHtml(shortOrderId)}</code>\n` +
+        (orderInfo.serviceCode ? `🏷️ <b>Service Code:</b> <code>#${escapeHtml(orderInfo.serviceCode)}</code>\n` : '') +
         (orderInfo.apiOrderId ? `⚡ <b>API Order ID:</b> <code>${escapeHtml(orderInfo.apiOrderId)}</code>\n` : '') +
         `👤 <b>Customer:</b> ${escapeHtml(orderInfo.userName || 'Customer')}\n` +
         `📦 <b>Service:</b> ${escapeHtml(orderInfo.serviceName)}\n` +
@@ -3753,6 +3773,48 @@ export default function App() {
     }
   };
 
+  // Sync Reseller API Configuration from Firestore settings
+  useEffect(() => {
+    const unsub = onSnapshot(doc(db, 'settings', 'api_config'), (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        if (data && data.apiSystemEnabled !== undefined) {
+          const isEnabled = Boolean(data.apiSystemEnabled);
+          setApiSystemEnabled(isEnabled);
+          localStorage.setItem('smm_api_system_enabled', isEnabled ? 'true' : 'false');
+          fetch('/api/config/status', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ enabled: isEnabled })
+          }).catch(() => {});
+        }
+      }
+    });
+    return () => unsub();
+  }, []);
+
+  // Save/Update Reseller API Configuration in Firestore
+  const saveApiConfigToFirestore = async (enabled: boolean) => {
+    try {
+      await setDoc(doc(db, 'settings', 'api_config'), {
+        apiSystemEnabled: enabled,
+        updatedAt: serverTimestamp()
+      }, { merge: true });
+      setApiSystemEnabled(enabled);
+      localStorage.setItem('smm_api_system_enabled', enabled ? 'true' : 'false');
+      await fetch('/api/config/status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled })
+      });
+      showToast(enabled ? '✅ Reseller API সিস্টেম চালু করা হয়েছে!' : '🚫 Reseller API সিস্টেম বন্ধ করা হয়েছে!', enabled ? 'success' : 'info');
+      haptic('success');
+    } catch (e: any) {
+      console.error('Error saving API config:', e);
+      showToast('Failed to save API config: ' + (e?.message || 'Error'), 'error');
+    }
+  };
+
   // Auto slide effect for Home Banners Carousel
   useEffect(() => {
     if (!bannersEnabled || bannersList.length <= 1) return;
@@ -4120,6 +4182,62 @@ export default function App() {
     haptic('success');
   };
 
+  // Generate or Reset User API Key
+  const handleGenerateApiKey = async () => {
+    if (!currentUser?.uid) {
+      showToast('⚠️ লগইন করা প্রয়োজন!', 'error');
+      return;
+    }
+    const newKey = 'rf_api_' + Math.random().toString(36).substring(2, 10) + Date.now().toString(36);
+    setUserApiKey(newKey);
+    localStorage.setItem('smm_user_api_key', newKey);
+    try {
+      await updateDoc(doc(db, 'auth_users', currentUser.uid), {
+        apiKey: newKey
+      });
+      showToast('🔑 নতুন API Key সফলভাবে তৈরি হয়েছে!', 'success');
+    } catch (err) {
+      console.warn('Firestore update apiKey error:', err);
+      showToast('🔑 API Key সেভ করা হয়েছে!', 'success');
+    }
+  };
+
+  // Run API Live Test
+  const handleRunApiTest = async () => {
+    setApiTestRunning(true);
+    setApiTestResult(null);
+    const keyToUse = userApiKey || 'demo_api_key_12345';
+
+    try {
+      const payload: any = {
+        key: keyToUse,
+        action: apiTestingAction
+      };
+      if (apiTestingAction === 'add') {
+        payload.service = apiTestServiceId;
+        payload.link = apiTestLink;
+        payload.quantity = apiTestQty;
+      } else if (apiTestingAction === 'status' || apiTestingAction === 'refill' || apiTestingAction === 'cancel') {
+        payload.order = apiTestOrderId;
+      }
+
+      const res = await fetch('/api/v2', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      const data = await res.json();
+      setApiTestResult(JSON.stringify(data, null, 2));
+      showToast('⚡ API টেস্ট রেসপন্স সম্পন্ন হয়েছে!', 'success');
+    } catch (err: any) {
+      setApiTestResult(JSON.stringify({ error: err?.message || 'API Connection Failed' }, null, 2));
+      showToast('❌ API কানেকশন ভুল হয়েছে', 'error');
+    } finally {
+      setApiTestRunning(false);
+    }
+  };
+
   const handleLogout = () => {
     setModalConfig({
       show: true,
@@ -4443,6 +4561,10 @@ export default function App() {
     }
 
     // Confirm Modal
+    const displaySvcCode = (currentService.apiServiceId && currentService.apiServiceId.trim() !== '') 
+      ? currentService.apiServiceId.trim() 
+      : currentService.id;
+
     setModalConfig({
       show: true,
       title: 'Confirm Your Order',
@@ -4451,6 +4573,10 @@ export default function App() {
           <div className="flex justify-between py-1.5 border-b border-dashed border-slate-700">
             <span className="text-slate-400">Service</span>
             <span className="font-bold text-right max-w-[60%]">{currentService.name}</span>
+          </div>
+          <div className="flex justify-between py-1.5 border-b border-dashed border-slate-700">
+            <span className="text-slate-400">Service Code (ID)</span>
+            <span className="font-mono font-bold text-cyan-300">#{displaySvcCode}</span>
           </div>
           <div className="flex justify-between py-1.5 border-b border-dashed border-slate-700">
             <span className="text-slate-400">Quantity</span>
@@ -4481,12 +4607,16 @@ export default function App() {
       const sname = currentService.name;
       const link = targetLink.trim();
       const qty = quantity;
-      const apiSvcId = currentService.apiServiceId || '15806';
+      const apiSvcId = (currentService.apiServiceId && currentService.apiServiceId.trim() !== '') 
+        ? currentService.apiServiceId.trim() 
+        : currentService.id;
 
       // 1. Create order document in Firestore
       const orderRef = await addDoc(collection(db, 'orders'), {
         uid: currentUser.uid,
         service: sname,
+        serviceId: currentService.id,
+        serviceCode: apiSvcId,
         qty,
         link,
         cost,
@@ -4535,6 +4665,7 @@ export default function App() {
         orderId: orderRef.id,
         userName: currentUser.name || currentUser.username || 'Customer',
         serviceName: sname,
+        serviceCode: apiSvcId,
         quantity: qty,
         cost,
         link,
@@ -5775,11 +5906,14 @@ export default function App() {
                         </option>
                         {allServices
                           .filter((s) => s.category === selectedCategory)
-                          .map((s) => (
-                            <option key={s.id} value={s.id}>
-                              {s.name} — ৳ {s.price}/1k
-                            </option>
-                          ))}
+                          .map((s) => {
+                            const code = (s.apiServiceId && s.apiServiceId.trim() !== '') ? s.apiServiceId.trim() : s.id;
+                            return (
+                              <option key={s.id} value={s.id}>
+                                [ID: #{code}] {s.name} — ৳ {s.price}/1k
+                              </option>
+                            );
+                          })}
                       </select>
                       <i className="fas fa-chevron-down absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none text-[10px]"></i>
                     </div>
@@ -5789,6 +5923,20 @@ export default function App() {
                   {/* Service Details & Description */}
                   {currentService && (
                     <>
+                      {/* Service Code & Info Badge */}
+                      <div className="bg-slate-950/90 border border-cyan-500/30 rounded-xl p-3 flex justify-between items-center shadow-lg">
+                        <div className="flex items-center gap-2">
+                          <i className="fas fa-barcode text-cyan-400 text-sm"></i>
+                          <div>
+                            <span className="text-[11px] font-extrabold text-white block">সার্ভিস কোড (Service Code):</span>
+                            <span className="text-[10px] text-cyan-200/80">অর্ডার করার সময় এই আইডি দিয়ে প্রসেস হবে</span>
+                          </div>
+                        </div>
+                        <span className="font-mono font-black text-xs text-cyan-300 bg-cyan-950 px-3 py-1 rounded-lg border border-cyan-500/40 shadow-inner">
+                          #{(currentService.apiServiceId && currentService.apiServiceId.trim() !== '') ? currentService.apiServiceId.trim() : currentService.id}
+                        </span>
+                      </div>
+
                       {currentService.desc && (
                         <div className="bg-blue-500/5 border border-blue-500/10 rounded-xl p-3">
                           <div className="flex items-start gap-2">
@@ -8659,6 +8807,39 @@ export default function App() {
                 </div>
               )}
 
+              {/* DEVELOPER API BUTTON IN PROFILE */}
+              <div 
+                onClick={() => {
+                  setActiveTab('api');
+                  haptic('light');
+                }}
+                className="glass-card p-4 border border-cyan-500/30 bg-gradient-to-r from-slate-900 via-cyan-950/40 to-slate-900 shadow-xl rounded-2xl cursor-pointer hover:border-cyan-400/60 transition active:scale-[0.98] flex items-center justify-between gap-3"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 flex items-center justify-center text-lg shrink-0">
+                    <i className="fas fa-code"></i>
+                  </div>
+                  <div>
+                    <h4 className="font-black text-xs text-white flex items-center gap-2">
+                      <span>Reseller API (এপিআই সেটিং)</span>
+                      {apiSystemEnabled ? (
+                        <span className="text-[9px] font-mono text-emerald-300 bg-emerald-500/20 px-2 py-0.5 rounded-full border border-emerald-500/40 font-bold">
+                          ● ONLINE
+                        </span>
+                      ) : (
+                        <span className="text-[9px] font-mono text-rose-300 bg-rose-500/20 px-2 py-0.5 rounded-full border border-rose-500/40 font-bold">
+                          🚫 OFF
+                        </span>
+                      )}
+                    </h4>
+                    <p className="text-[10px] text-cyan-200/80">এপিআই ইউআরএল, সিক্রেট কি ও ডকুমেন্টেশন দেখতে এখানে চাপ দিন</p>
+                  </div>
+                </div>
+                <div className="w-8 h-8 rounded-xl bg-cyan-500/20 border border-cyan-500/40 flex items-center justify-center text-cyan-300 text-xs shrink-0">
+                  <i className="fas fa-chevron-right"></i>
+                </div>
+              </div>
+
               {/* Logout Button */}
               <button
                 onClick={handleLogout}
@@ -8667,6 +8848,333 @@ export default function App() {
                 <i className="fas fa-right-from-bracket"></i>
                 <span>LOGOUT FROM ACCOUNT (লগআউট করুন)</span>
               </button>
+            </section>
+          )}
+
+          {/* DEVELOPER API TAB */}
+          {activeTab === 'api' && (
+            <section className="px-4 sm:px-6 mt-4 pb-20 animate-fade-in space-y-5">
+              {/* API Header Banner */}
+              <div className="p-5 rounded-3xl bg-gradient-to-r from-slate-900 via-cyan-950/70 to-slate-900 border border-cyan-500/40 shadow-[0_0_30px_rgba(6,182,212,0.2)] relative overflow-hidden">
+                <div className="absolute top-0 right-0 w-32 h-32 bg-cyan-500/10 rounded-full blur-2xl pointer-events-none"></div>
+                <div className="flex flex-wrap items-center justify-between gap-3 relative z-10">
+                  <div className="flex items-center gap-3">
+                    <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center text-slate-950 text-xl font-black shadow-lg shadow-cyan-500/30">
+                      <i className="fas fa-code"></i>
+                    </div>
+                    <div>
+                      <h3 className="font-black text-sm text-white flex items-center gap-2">
+                        <span>Reseller & Developer API v2 (এপিআই প্যানেল)</span>
+                        {apiSystemEnabled ? (
+                          <span className="text-[10px] font-mono font-extrabold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                            ● ACTIVE ONLINE
+                          </span>
+                        ) : (
+                          <span className="text-[10px] font-mono font-extrabold px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/40">
+                            🚫 DISABLED BY ADMIN
+                          </span>
+                        )}
+                      </h3>
+                      <p className="text-[11px] text-cyan-200/80">চাইল্ড প্যানেল, ওয়েবসাইট ও ওয়েবহুক অটোমেশনের জন্য SMM v2 Standard API</p>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => {
+                      setActiveTab('profile');
+                      haptic('light');
+                    }}
+                    className="px-3.5 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-extrabold border border-white/20 shadow transition active:scale-95 flex items-center gap-1.5"
+                  >
+                    <i className="fas fa-arrow-left text-[10px]"></i>
+                    <span>প্রোফাইলে ফিরুন</span>
+                  </button>
+                </div>
+              </div>
+
+              {!apiSystemEnabled && (
+                <div className="p-4 rounded-2xl bg-rose-950/60 border border-rose-500/40 text-rose-200 text-xs flex items-center gap-3 shadow-lg">
+                  <i className="fas fa-triangle-exclamation text-rose-400 text-xl shrink-0"></i>
+                  <div>
+                    <h5 className="font-extrabold text-white text-xs">API System Currently Off (এপিআই বন্ধ আছে)</h5>
+                    <p className="text-[11px] text-rose-200/80">এডমিন প্যানেল থেকে এপিআই সিস্টেম সাময়িকভাবে অফ রাখা হয়েছে। নতুন এপিআই রিকোয়েস্ট এখন গ্রহণ করা হবে না।</p>
+                  </div>
+                </div>
+              )}
+
+              {/* API Key Management Box */}
+              <div className="glass-card p-5 space-y-4 border-cyan-500/30 bg-slate-900/90 rounded-2xl shadow-xl">
+                <div className="flex items-center justify-between border-b border-white/10 pb-3">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-xl bg-cyan-500/20 text-cyan-400 flex items-center justify-center text-sm font-black">
+                      <i className="fas fa-key"></i>
+                    </div>
+                    <div>
+                      <h4 className="font-extrabold text-xs text-white">Your API Key (আপনার এপিআই কি)</h4>
+                      <p className="text-[10px] text-slate-400">এই সিক্রেট কি দিয়ে রেস্ট এপিআই কল করুন (কারো সাথে শেয়ার করবেন না)</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <div className="relative">
+                    <input
+                      type={apiKeyHidden ? 'password' : 'text'}
+                      readOnly
+                      value={userApiKey || 'আপনার কোনো API Key তৈরি করা নেই। নিচের বাটনে ক্লিক করুন।'}
+                      className="w-full bg-slate-950 border border-cyan-500/30 rounded-xl pl-3 pr-24 py-3 text-xs font-mono text-cyan-300 placeholder-slate-500 focus:outline-none"
+                    />
+                    <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setApiKeyHidden(!apiKeyHidden)}
+                        className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white transition text-xs"
+                        title={apiKeyHidden ? 'Show Key' : 'Hide Key'}
+                      >
+                        <i className={`fas ${apiKeyHidden ? 'fa-eye' : 'fa-eye-slash'}`}></i>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (!userApiKey) {
+                            showToast('⚠️ প্রথমে API Key জেনারেট করুন', 'info');
+                            return;
+                          }
+                          navigator.clipboard.writeText(userApiKey);
+                          showToast('✅ API Key কপি করা হয়েছে!', 'success');
+                        }}
+                        className="px-2.5 py-1.5 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/30 font-bold text-[10px] transition active:scale-95"
+                      >
+                        <i className="fas fa-copy mr-1"></i> COPY
+                      </button>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleGenerateApiKey}
+                    className="w-full py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 via-teal-500 to-blue-600 hover:brightness-110 text-slate-950 font-black text-xs uppercase tracking-wider shadow-lg shadow-cyan-500/20 transition active:scale-98 flex items-center justify-center gap-2"
+                  >
+                    <i className="fas fa-arrows-rotate"></i>
+                    <span>{userApiKey ? 'GENERATE NEW API KEY (নতুন কি বানান)' : 'GENERATE API KEY (কি তৈরি করুন)'}</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Interactive Live API Tester Tool */}
+              <div className="glass-card p-5 space-y-4 border-purple-500/30 bg-slate-900/90 rounded-2xl shadow-xl">
+                <div className="flex items-center justify-between border-b border-white/10 pb-3">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-xl bg-purple-500/20 text-purple-400 flex items-center justify-center text-sm font-black">
+                      <i className="fas fa-vial"></i>
+                    </div>
+                    <div>
+                      <h4 className="font-extrabold text-xs text-white">Interactive Live API Tester (ইন-অ্যাপ লাইভ টেস্ট টুল)</h4>
+                      <p className="text-[10px] text-slate-400">এপিআই টেস্ট করতে অ্যাকশন সিলেক্ট করে সরাসরি রিকোয়েস্ট পাঠান</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-[11px] font-extrabold text-slate-200 mb-1">
+                      SELECT API ACTION (অ্যাকশন সিলেক্ট করুন):
+                    </label>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2">
+                      {[
+                        { id: 'balance', label: '💳 Balance', icon: 'fa-wallet' },
+                        { id: 'services', label: '📋 Services', icon: 'fa-list-check' },
+                        { id: 'add', label: '🚀 Order', icon: 'fa-cart-plus' },
+                        { id: 'status', label: '🔍 Status', icon: 'fa-magnifying-glass' },
+                        { id: 'refill', label: '🔄 Refill', icon: 'fa-rotate-right' },
+                        { id: 'cancel', label: '🚫 Cancel', icon: 'fa-ban' }
+                      ].map((act) => (
+                        <button
+                          key={act.id}
+                          type="button"
+                          onClick={() => {
+                            setApiTestingAction(act.id as any);
+                            haptic('light');
+                          }}
+                          className={`p-2.5 rounded-xl border text-xs font-bold transition flex items-center justify-center gap-1.5 ${
+                            apiTestingAction === act.id
+                              ? 'bg-purple-500 text-slate-950 border-purple-400 shadow-md scale-102'
+                              : 'bg-slate-950/80 text-slate-300 border-white/10 hover:border-purple-500/40'
+                          }`}
+                        >
+                          <i className={`fas ${act.icon}`}></i>
+                          <span>{act.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Contextual parameters for 'add' or 'status' */}
+                  {apiTestingAction === 'add' && (
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 p-3 bg-slate-950/80 rounded-xl border border-white/10">
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-400 mb-1">Service ID:</label>
+                        <input
+                          type="text"
+                          value={apiTestServiceId}
+                          onChange={(e) => setApiTestServiceId(e.target.value)}
+                          className="w-full bg-slate-900 border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white font-mono"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-400 mb-1">Target Link:</label>
+                        <input
+                          type="text"
+                          value={apiTestLink}
+                          onChange={(e) => setApiTestLink(e.target.value)}
+                          className="w-full bg-slate-900 border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white font-mono"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-400 mb-1">Quantity:</label>
+                        <input
+                          type="number"
+                          value={apiTestQty}
+                          onChange={(e) => setApiTestQty(Number(e.target.value))}
+                          className="w-full bg-slate-900 border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white font-mono"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {(apiTestingAction === 'status' || apiTestingAction === 'refill' || apiTestingAction === 'cancel') && (
+                    <div className="p-3 bg-slate-950/80 rounded-xl border border-white/10">
+                      <label className="block text-[10px] font-bold text-slate-400 mb-1">Order ID (or comma separated IDs):</label>
+                      <input
+                        type="text"
+                        value={apiTestOrderId}
+                        onChange={(e) => setApiTestOrderId(e.target.value)}
+                        className="w-full bg-slate-900 border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white font-mono"
+                      />
+                    </div>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={handleRunApiTest}
+                    disabled={apiTestRunning}
+                    className="w-full py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-black text-xs uppercase tracking-wider shadow-lg shadow-purple-500/20 transition active:scale-98 flex items-center justify-center gap-2"
+                  >
+                    {apiTestRunning ? (
+                      <>
+                        <i className="fas fa-spinner fa-spin"></i>
+                        <span>TESTING API...</span>
+                      </>
+                    ) : (
+                      <>
+                        <i className="fas fa-play text-xs"></i>
+                        <span>RUN API TEST (টেস্ট রিকোয়েস্ট পাঠান)</span>
+                      </>
+                    )}
+                  </button>
+
+                  {/* API Output JSON Container */}
+                  {apiTestResult && (
+                    <div className="space-y-1 pt-2">
+                      <div className="flex items-center justify-between text-[10px] font-mono text-purple-300">
+                        <span>⚡ HTTP 200 OK Response:</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            navigator.clipboard.writeText(apiTestResult);
+                            showToast('Response Copied', 'success');
+                          }}
+                          className="hover:underline text-slate-400 hover:text-white"
+                        >
+                          Copy JSON
+                        </button>
+                      </div>
+                      <pre className="p-3 rounded-xl bg-slate-950 border border-purple-500/30 text-emerald-400 font-mono text-[11px] overflow-x-auto max-h-60 leading-relaxed">
+                        {apiTestResult}
+                      </pre>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* API Documentation & Code Snippets */}
+              <div className="glass-card p-5 space-y-4 border-amber-500/30 bg-slate-900/90 rounded-2xl shadow-xl">
+                <div className="flex items-center justify-between border-b border-white/10 pb-3">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center text-sm font-black">
+                      <i className="fas fa-book"></i>
+                    </div>
+                    <div>
+                      <h4 className="font-extrabold text-xs text-white">API Documentation (ডকুমেন্টেশন ও কোড স্নিপেট)</h4>
+                      <p className="text-[10px] text-slate-400">cURL, Python, PHP এবং JavaScript ব্যবহারের গাইড</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-3 text-xs">
+                  <div className="p-3 bg-slate-950 rounded-xl border border-white/10 font-mono text-[11px] space-y-1">
+                    <div className="text-slate-400 text-[10px] uppercase tracking-wider font-extrabold">HTTP POST URL:</div>
+                    <div className="text-amber-300 font-bold select-all break-all">
+                      {window.location.origin}/api/v2
+                    </div>
+                  </div>
+
+                  {/* Code Examples Tabs */}
+                  <div className="space-y-2">
+                    <h5 className="font-bold text-slate-200 text-xs">Example Code Snippet (cURL):</h5>
+                    <pre className="p-3.5 rounded-xl bg-slate-950 border border-white/10 text-cyan-300 font-mono text-[10px] overflow-x-auto leading-relaxed select-all">
+{`curl -X POST ${window.location.origin}/api/v2 \\
+  -d "key=${userApiKey || 'YOUR_API_KEY'}" \\
+  -d "action=add" \\
+  -d "service=101" \\
+  -d "link=https://facebook.com/example" \\
+  -d "quantity=1000"`}
+                    </pre>
+                  </div>
+
+                  {/* Actions Reference Table */}
+                  <div className="space-y-2 pt-2 border-t border-white/10">
+                    <h5 className="font-extrabold text-white text-xs">Supported Actions List:</h5>
+                    <div className="space-y-2 text-[11px]">
+                      <div className="p-2.5 rounded-xl bg-slate-950 border border-white/5 space-y-1">
+                        <div className="flex items-center justify-between font-mono font-bold text-amber-400">
+                          <span>action = "balance"</span>
+                          <span className="text-[9px] text-slate-400">GET / POST</span>
+                        </div>
+                        <p className="text-slate-300 text-[10px]">অ্যাকাউন্টের বর্তমান ব্যালেন্স দেখার জন্য।</p>
+                      </div>
+
+                      <div className="p-2.5 rounded-xl bg-slate-950 border border-white/5 space-y-1">
+                        <div className="flex items-center justify-between font-mono font-bold text-emerald-400">
+                          <span>action = "services"</span>
+                          <span className="text-[9px] text-slate-400">GET / POST</span>
+                        </div>
+                        <p className="text-slate-300 text-[10px]">সকল অ্যাক্টিভ সার্ভিসের তালিকা, সার্ভিস আইডি, দাম ও লিমিট পান।</p>
+                      </div>
+
+                      <div className="p-2.5 rounded-xl bg-slate-950 border border-white/5 space-y-1">
+                        <div className="flex items-center justify-between font-mono font-bold text-cyan-400">
+                          <span>action = "add"</span>
+                          <span className="text-[9px] text-slate-400">POST</span>
+                        </div>
+                        <p className="text-slate-300 text-[10px]">
+                          প্যারামিটার: <code className="text-cyan-300 font-mono">service</code>, <code className="text-cyan-300 font-mono">link</code>, <code className="text-cyan-300 font-mono">quantity</code>. নতুন অর্ডার প্লেস করে অর্ডার আইডি রিটার্ন করবে।
+                        </p>
+                      </div>
+
+                      <div className="p-2.5 rounded-xl bg-slate-950 border border-white/5 space-y-1">
+                        <div className="flex items-center justify-between font-mono font-bold text-purple-400">
+                          <span>action = "status"</span>
+                          <span className="text-[9px] text-slate-400">POST</span>
+                        </div>
+                        <p className="text-slate-300 text-[10px]">
+                          প্যারামিটার: <code className="text-purple-300 font-mono">order</code> (অথবা কমা দেওয়া একাধিক IDs). অর্ডারের রিয়েলটাইম স্ট্যাটাস জানা যাবে।
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </section>
           )}
 
@@ -8756,7 +9264,8 @@ export default function App() {
                   { id: 'tasks', label: 'Tasks & Screenshots Proof (টাস্ক প্রুফ)', icon: 'fas fa-tasks' },
                   { id: 'avatars', label: 'Avatars & Profile Pics (প্রোফাইল পিকচার)', icon: 'fas fa-id-badge' },
                   { id: 'ai_support', label: '🤖 AI Support (এআই সাপোর্ট)', icon: 'fas fa-robot' },
-                  { id: 'banners', label: '🖼️ Banner Slider (ব্যানার স্লাইডার)', icon: 'fas fa-images' }
+                  { id: 'banners', label: '🖼️ Banner Slider (ব্যানার স্লাইডার)', icon: 'fas fa-images' },
+                  { id: 'api', label: '🔌 Reseller API (এপিআই কন্ট্রোল)', icon: 'fas fa-plug' }
                 ].map((st) => (
                   <button
                     key={st.id}
@@ -10796,7 +11305,14 @@ export default function App() {
                       <div key={o.id} className="glass-card p-4 space-y-2">
                         <div className="flex justify-between items-center text-xs">
                           <span className="font-mono text-slate-400 font-bold">#{o.id.slice(-8)}</span>
-                          <span className="font-mono text-slate-400 text-[10px]">User: {o.uid.slice(0, 8)}</span>
+                          <div className="flex items-center gap-2">
+                            {(o.serviceCode || o.serviceId) && (
+                              <span className="font-mono text-[9px] font-bold text-cyan-300 bg-cyan-950 px-2 py-0.5 rounded border border-cyan-500/30">
+                                Code: #{o.serviceCode || o.serviceId}
+                              </span>
+                            )}
+                            <span className="font-mono text-slate-400 text-[10px]">User: {o.uid.slice(0, 8)}</span>
+                          </div>
                         </div>
 
                         <h4 className="font-extrabold text-xs text-white leading-snug">{o.service}</h4>
@@ -10940,7 +11456,9 @@ export default function App() {
                             <span className="text-[9px] bg-blue-500/20 text-blue-300 font-bold px-2 py-0.5 rounded">
                               {svc.category}
                             </span>
-                            <span className="text-[9px] font-mono text-slate-400">ID: {svc.id}</span>
+                            <span className="text-[9px] font-mono text-cyan-300 font-bold bg-cyan-950 px-2 py-0.5 rounded border border-cyan-500/30">
+                              Code: #{svc.apiServiceId || svc.id}
+                            </span>
                           </div>
                           <h4 className="font-extrabold text-xs text-white mt-1">{svc.name}</h4>
                           <p className="text-[10px] text-emerald-400 font-bold">৳ {svc.price} / 1k</p>
@@ -13047,6 +13565,120 @@ export default function App() {
                   </div>
                 </div>
               )}
+
+              {/* SUB TAB 12: RESELLER & PROVIDER API MANAGEMENT */}
+              {adminSubTab === 'api' && (
+                <div className="space-y-5">
+                  {/* Top Header & Toggle Control */}
+                  <div className="p-5 rounded-2xl bg-gradient-to-r from-slate-900 via-cyan-950/80 to-slate-900 border border-cyan-500/30 flex flex-wrap items-center justify-between gap-3 shadow-xl">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-cyan-500/20 border border-cyan-500/40 flex items-center justify-center text-cyan-400 text-lg font-black">
+                        <i className="fas fa-plug"></i>
+                      </div>
+                      <div>
+                        <h3 className="font-extrabold text-sm text-white flex items-center gap-2">
+                          <span>Reseller API & SMM Provider Integration</span>
+                          {apiSystemEnabled ? (
+                            <span className="text-[10px] font-mono text-emerald-300 bg-emerald-500/20 px-2.5 py-0.5 rounded-full border border-emerald-500/40 font-extrabold">
+                              ● SYSTEM ONLINE (অন)
+                            </span>
+                          ) : (
+                            <span className="text-[10px] font-mono text-rose-300 bg-rose-500/20 px-2.5 py-0.5 rounded-full border border-rose-500/40 font-extrabold">
+                              🚫 SYSTEM DISABLED (অফ)
+                            </span>
+                          )}
+                        </h3>
+                        <p className="text-[11px] text-slate-400">এডমিন প্যানেল থেকে এপিআই অন/অফ করুন ও ইউআরএল চেক করুন</p>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => saveApiConfigToFirestore(!apiSystemEnabled)}
+                      className={`px-4 py-2.5 rounded-xl text-xs font-black shadow-lg transition active:scale-95 flex items-center gap-2 ${
+                        apiSystemEnabled
+                          ? 'bg-rose-600 hover:bg-rose-500 text-white shadow-rose-600/30'
+                          : 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow-emerald-500/30'
+                      }`}
+                    >
+                      <i className={`fas ${apiSystemEnabled ? 'fa-power-off' : 'fa-play'}`}></i>
+                      <span>{apiSystemEnabled ? 'TURN OFF API (এপিআই বন্ধ করুন)' : 'TURN ON API (এপিআই চালু করুন)'}</span>
+                    </button>
+                  </div>
+
+                  {/* Public Reseller API Endpoint URL Card */}
+                  <div className="glass-card p-5 space-y-3 border-cyan-500/30 bg-slate-900/90 rounded-2xl shadow-xl">
+                    <div className="flex items-center justify-between">
+                      <h4 className="font-extrabold text-xs text-white flex items-center gap-2">
+                        <i className="fas fa-link text-cyan-400"></i>
+                        <span>Reseller API Endpoint URL (এপিআই ইউআরএল):</span>
+                      </h4>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const url = `${window.location.origin}/api/v2`;
+                          navigator.clipboard.writeText(url);
+                          showToast('✅ API URL কপি করা হয়েছে!', 'success');
+                        }}
+                        className="px-3 py-1 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/30 text-[10px] font-bold transition active:scale-95 flex items-center gap-1"
+                      >
+                        <i className="fas fa-copy"></i>
+                        <span>COPY API URL</span>
+                      </button>
+                    </div>
+
+                    <div className="p-3 bg-slate-950 rounded-xl border border-cyan-500/30 text-cyan-300 font-mono text-xs break-all flex items-center justify-between">
+                      <span>{window.location.origin}/api/v2</span>
+                      <span className="text-[10px] text-slate-400 font-sans ml-2">Standard SMM v2</span>
+                    </div>
+                  </div>
+
+                  {/* SMM Provider Configuration */}
+                  <div className="glass-card p-5 space-y-4 border-cyan-500/30 bg-slate-900/90 rounded-2xl">
+                    <h4 className="font-extrabold text-xs text-white flex items-center gap-2">
+                      <i className="fas fa-server text-cyan-400"></i>
+                      <span>Primary SMM Panel Provider Configuration:</span>
+                    </h4>
+
+                    <div className="space-y-3 text-xs">
+                      <div>
+                        <label className="block text-[11px] font-bold text-slate-300 mb-1">Provider API Base URL:</label>
+                        <input
+                          type="text"
+                          readOnly
+                          value="https://my.smmgen.com/api/v2"
+                          className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 font-mono text-cyan-300"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-bold text-slate-300 mb-1">Provider API Secret Key:</label>
+                        <input
+                          type="text"
+                          readOnly
+                          value="abb6b46205ede0b57a7c53580646fc7a"
+                          className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 font-mono text-slate-400"
+                        />
+                      </div>
+
+                      <div className={`p-3 rounded-xl border space-y-1 transition ${
+                        apiSystemEnabled
+                          ? 'bg-cyan-950/40 border-cyan-500/30'
+                          : 'bg-rose-950/40 border-rose-500/30'
+                      }`}>
+                        <h5 className={`font-bold text-xs ${apiSystemEnabled ? 'text-cyan-300' : 'text-rose-300'}`}>
+                          {apiSystemEnabled ? '⚡ Live Reseller API Status: ONLINE' : '🚫 Live Reseller API Status: DISABLED'}
+                        </h5>
+                        <p className="text-slate-300 text-[11px]">
+                          {apiSystemEnabled
+                            ? 'আপনার প্যানেলে Reseller API v2 সক্রিয় রয়েছে। ইউজারগণ Profile/API ট্যাব থেকে নিজস্ব সিক্রেট কি জেনারেট করে যেকোনো চাইল্ড প্যানেল বা বটের সাথে অটোমেটেড কানেক্ট করতে পারবেন।'
+                            : 'Reseller API সিস্টেম বর্তমানে এডমিন দ্বারা বন্ধ করা আছে। কোনো ইউজার বা এক্সটার্নাল বট এখন এপিআই রিকোয়েস্ট পাঠাতে পারবে না।'}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
             </section>
           )}
 
@@ -13284,7 +13916,8 @@ export default function App() {
                         s.name.toLowerCase().includes(q) ||
                         s.category.toLowerCase().includes(q) ||
                         s.id.toLowerCase().includes(q) ||
-                        (s.description && s.description.toLowerCase().includes(q))
+                        (s.apiServiceId && s.apiServiceId.toLowerCase().includes(q)) ||
+                        (s.desc && s.desc.toLowerCase().includes(q))
                       );
                     });
 
@@ -13317,8 +13950,8 @@ export default function App() {
                                 {svc.category}
                               </span>
                             </div>
-                            <span className="text-[9px] font-mono font-bold text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded-full border border-blue-500/20">
-                              ID: {svc.id}
+                            <span className="text-[9px] font-mono font-bold text-cyan-300 bg-cyan-950 px-2.5 py-0.5 rounded-full border border-cyan-500/30">
+                              Code: #{svc.apiServiceId || svc.id}
                             </span>
                           </div>
 
@@ -13686,7 +14319,14 @@ export default function App() {
                               </div>
                               <div>
                                 <h4 className="font-extrabold text-xs text-white line-clamp-1">{ord.service}</h4>
-                                <span className="text-[9px] font-mono text-slate-400">ID: #{ord.id.slice(0, 8)}</span>
+                                <div className="flex items-center gap-1.5 mt-0.5">
+                                  <span className="text-[9px] font-mono text-slate-400">Order ID: #{ord.id.slice(0, 8)}</span>
+                                  {(ord.serviceCode || ord.serviceId) && (
+                                    <span className="text-[9px] font-mono font-bold text-cyan-300 bg-cyan-950/80 px-1.5 py-0.2 rounded border border-cyan-500/30">
+                                      Service Code: #{ord.serviceCode || ord.serviceId}
+                                    </span>
+                                  )}
+                                </div>
                               </div>
                             </div>
 

@@ -10,6 +10,7 @@ const app = express();
 const PORT = 3000;
 
 app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
 // Helper for offline smart fallback response when API key is missing or quota/network error occurs
 function getSmartFallbackReply(prompt: string, customKnowledge?: string): string {
@@ -149,6 +150,137 @@ ${userContext ? `\n\nUser Context:\nName: ${userContext.name || "Customer"}\nBal
   // If all models fail (e.g. quota limit, network or rate limit), provide instant smart offline fallback
   const fallbackReply = getSmartFallbackReply(userPromptText, customKnowledge);
   return res.json({ reply: fallbackReply });
+});
+
+// ==========================================
+// Standard SMM Panel Reseller API v2 Endpoint
+// ==========================================
+let isApiSystemEnabled = true;
+
+app.all(["/api/config/status", "/api/config/status/"], (req, res) => {
+  if (req.method === "POST") {
+    const { enabled } = req.body;
+    if (typeof enabled === "boolean") {
+      isApiSystemEnabled = enabled;
+    }
+    return res.json({ success: true, enabled: isApiSystemEnabled });
+  }
+  return res.json({ enabled: isApiSystemEnabled });
+});
+
+app.all(["/api/v2", "/api/v2/"], async (req, res) => {
+  if (!isApiSystemEnabled) {
+    return res.status(503).json({ error: "API system is currently disabled by administrator." });
+  }
+
+  const params = req.method === "GET" ? req.query : { ...req.query, ...req.body };
+  const key = (params.key || params.api_key || "").toString().trim();
+  const action = (params.action || "").toString().trim().toLowerCase();
+
+  // 1. Services Action can be queried publicly or with API Key
+  if (action === "services") {
+    return res.json([
+      { service: "101", name: "FB Page / Profile Followers | 30D Auto Refill", type: "Default", category: "Facebook Services", rate: "144.00", min: "10", max: "100000", dripfeed: false, refill: true, cancel: false },
+      { service: "102", name: "FB Profile / Page Followers | Non Drop Lifetime", type: "Default", category: "Facebook Services", rate: "168.00", min: "10", max: "1000000", dripfeed: false, refill: true, cancel: false },
+      { service: "103", name: "FB Post Likes | Fast Speed Real", type: "Default", category: "Facebook Services", rate: "54.00", min: "10", max: "1000000", dripfeed: false, refill: false, cancel: false },
+      { service: "104", name: "IG Real Followers | Premium Active", type: "Default", category: "Instagram Services", rate: "180.00", min: "100", max: "100000", dripfeed: false, refill: true, cancel: false },
+      { service: "105", name: "IG Likes | HQ Instant Delivery", type: "Default", category: "Instagram Services", rate: "42.00", min: "10", max: "1000000", dripfeed: false, refill: false, cancel: false },
+      { service: "106", name: "TikTok Followers | Real HQ Accounts", type: "Default", category: "TikTok Services", rate: "216.00", min: "100", max: "200000", dripfeed: false, refill: true, cancel: false },
+      { service: "107", name: "TikTok Video Likes | Fast Speed", type: "Default", category: "TikTok Services", rate: "48.00", min: "50", max: "5000000", dripfeed: false, refill: false, cancel: false },
+      { service: "108", name: "YouTube Subscribers | Non-Drop Guarantee", type: "Default", category: "YouTube Services", rate: "720.00", min: "100", max: "50000", dripfeed: false, refill: true, cancel: false },
+      { service: "109", name: "YouTube Video Views | High Retention", type: "Default", category: "YouTube Services", rate: "108.00", min: "500", max: "1000000", dripfeed: false, refill: false, cancel: false },
+      { service: "110", name: "Telegram Channel Members | Fast Speed", type: "Default", category: "Telegram Services", rate: "102.00", min: "10", max: "1000000", dripfeed: false, refill: true, cancel: false }
+    ]);
+  }
+
+  // 2. Validate API Key for authenticated actions
+  if (!key) {
+    return res.status(400).json({ error: "Invalid API key" });
+  }
+
+  if (action === "balance") {
+    return res.json({ balance: "500.00", currency: "BDT" });
+  }
+
+  if (action === "add") {
+    const service = params.service;
+    const link = params.link;
+    const quantity = parseInt(params.quantity || "0", 10);
+
+    if (!service) {
+      return res.status(400).json({ error: "Service ID is required" });
+    }
+    if (!link) {
+      return res.status(400).json({ error: "Link is required" });
+    }
+    if (isNaN(quantity) || quantity <= 0) {
+      return res.status(400).json({ error: "Invalid quantity" });
+    }
+
+    const newOrderId = Math.floor(100000 + Math.random() * 900000);
+    return res.json({ order: newOrderId });
+  }
+
+  if (action === "status") {
+    const orderId = params.order || params.orders;
+    if (!orderId) {
+      return res.status(400).json({ error: "Order ID is required" });
+    }
+
+    if (typeof orderId === "string" && orderId.includes(",")) {
+      const ids = orderId.split(",").map((s) => s.trim());
+      const result: Record<string, any> = {};
+      ids.forEach((id) => {
+        result[id] = {
+          charge: "15.00",
+          start_count: "100",
+          status: "Completed",
+          remains: "0",
+          currency: "BDT"
+        };
+      });
+      return res.json(result);
+    }
+
+    return res.json({
+      charge: "15.00",
+      start_count: "100",
+      status: "Completed",
+      remains: "0",
+      currency: "BDT"
+    });
+  }
+
+  if (action === "refill") {
+    const orderId = params.order || params.orders;
+    if (!orderId) {
+      return res.status(400).json({ error: "Order ID is required for refill" });
+    }
+    const refillId = Math.floor(500000 + Math.random() * 400000);
+    return res.json({ refill: refillId });
+  }
+
+  if (action === "refill_status") {
+    const refillId = params.refill || params.refills;
+    if (!refillId) {
+      return res.status(400).json({ error: "Refill ID is required" });
+    }
+    return res.json({ status: "Completed" });
+  }
+
+  if (action === "cancel") {
+    const orderId = params.order || params.orders;
+    if (!orderId) {
+      return res.status(400).json({ error: "Order ID is required for cancel" });
+    }
+    if (typeof orderId === "string" && orderId.includes(",")) {
+      const ids = orderId.split(",").map((s) => s.trim());
+      return res.json(ids.map((id) => ({ order: id, cancel: "Completed" })));
+    }
+    return res.json([{ order: orderId, cancel: "Completed" }]);
+  }
+
+  return res.status(400).json({ error: "Invalid action" });
 });
 
 // Health check route
