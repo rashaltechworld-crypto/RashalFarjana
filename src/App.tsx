@@ -2503,6 +2503,16 @@ export default function App() {
   // Search Modal & Global Search State
   const [showSearchModal, setShowSearchModal] = useState(false);
   const [globalSearchQuery, setGlobalSearchQuery] = useState('');
+  const [searchSelectedCategory, setSearchSelectedCategory] = useState<string>('all');
+
+  // SMM Provider API Configuration State (Configurable from Admin Panel)
+  const [smmProviderApiKey, setSmmProviderApiKey] = useState<string>(() => {
+    return localStorage.getItem('smm_provider_api_key') || '64994346bbbbeeaa10307df325162283';
+  });
+  const [smmProviderApiUrl, setSmmProviderApiUrl] = useState<string>(() => {
+    return localStorage.getItem('smm_provider_api_url') || 'https://my.smmgen.com/api/v2';
+  });
+  const [isSavingSmmProvider, setIsSavingSmmProvider] = useState<boolean>(false);
 
   // Notification System State
   const [showNotifModal, setShowNotifModal] = useState(false);
@@ -3815,6 +3825,50 @@ export default function App() {
     }
   };
 
+  // Sync SMM Provider Configuration from Firestore settings
+  useEffect(() => {
+    const unsub = onSnapshot(doc(db, 'settings', 'smm_provider_config'), (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        if (data) {
+          if (data.apiKey) {
+            setSmmProviderApiKey(data.apiKey);
+            localStorage.setItem('smm_provider_api_key', data.apiKey);
+          }
+          if (data.apiUrl) {
+            setSmmProviderApiUrl(data.apiUrl);
+            localStorage.setItem('smm_provider_api_url', data.apiUrl);
+          }
+        }
+      }
+    });
+    return () => unsub();
+  }, []);
+
+  // Save/Update SMM Provider Configuration in Firestore
+  const handleSaveSmmProviderConfig = async (key: string, url: string) => {
+    setIsSavingSmmProvider(true);
+    try {
+      await setDoc(doc(db, 'settings', 'smm_provider_config'), {
+        apiKey: key.trim(),
+        apiUrl: url.trim(),
+        updatedAt: serverTimestamp()
+      }, { merge: true });
+      setSmmProviderApiKey(key.trim());
+      setSmmProviderApiUrl(url.trim());
+      localStorage.setItem('smm_provider_api_key', key.trim());
+      localStorage.setItem('smm_provider_api_url', url.trim());
+      showToast('✅ SMM Provider API Key ও Base URL সফলভাবে সেভ করা হয়েছে!', 'success');
+      haptic('success');
+    } catch (e: any) {
+      console.error('Error saving SMM Provider config:', e);
+      showToast('Failed to save SMM Provider config: ' + (e?.message || 'Error'), 'error');
+      haptic('error');
+    } finally {
+      setIsSavingSmmProvider(false);
+    }
+  };
+
   // Auto slide effect for Home Banners Carousel
   useEffect(() => {
     if (!bannersEnabled || bannersList.length <= 1) return;
@@ -4426,7 +4480,8 @@ export default function App() {
     link: string,
     qty: number
   ): Promise<{ error?: string; order?: number; status?: string }> => {
-    const apiKey = 'abb6b46205ede0b57a7c53580646fc7a';
+    const apiKey = (smmProviderApiKey && smmProviderApiKey.trim()) || '64994346bbbbeeaa10307df325162283';
+    const apiBase = (smmProviderApiUrl && smmProviderApiUrl.trim()) || 'https://my.smmgen.com/api/v2';
     const mappedService = SERVICE_ID_MAP[serviceId] || serviceId;
     const finalService = mappedService && mappedService.length >= 4 ? mappedService : '15806';
 
@@ -4440,7 +4495,7 @@ export default function App() {
 
     // 1. Try Netlify / Vite Proxy GET endpoint
     try {
-      const res = await fetch(`/api/smm/order?${queryParams}`);
+      const res = await fetch(`/api/smm/order?${queryParams}&apiBase=${encodeURIComponent(apiBase)}`);
       if (res.ok) {
         const text = await res.text();
         if (text && text.trim().startsWith('{')) {
@@ -4462,7 +4517,7 @@ export default function App() {
           link,
           quantity: qty,
           apiKey,
-          apiBase: 'https://my.smmgen.com/api/v2'
+          apiBase
         })
       });
 
@@ -4479,7 +4534,7 @@ export default function App() {
 
     // 3. Fallback: Direct fetch
     try {
-      const targetUrl = `https://my.smmgen.com/api/v2?${queryParams}`;
+      const targetUrl = `${apiBase.includes('?') ? apiBase + '&' : apiBase + '?'}${queryParams}`;
       const res = await fetch(targetUrl);
       if (res.ok) {
         const json = await res.json();
@@ -4489,7 +4544,7 @@ export default function App() {
       console.warn('Direct fetch failed:', e);
     }
 
-    return { error: 'API connection error. Please check your netlify redirect setup.' };
+    return { error: 'API connection error. Please check your netlify redirect setup or provider API key.' };
   };
 
   // Place Order Action
@@ -5910,7 +5965,7 @@ export default function App() {
                             const code = (s.apiServiceId && s.apiServiceId.trim() !== '') ? s.apiServiceId.trim() : s.id;
                             return (
                               <option key={s.id} value={s.id}>
-                                [ID: #{code}] {s.name} — ৳ {s.price}/1k
+                                #{code} — {s.name} (৳{s.price}/1k)
                               </option>
                             );
                           })}
@@ -5923,19 +5978,42 @@ export default function App() {
                   {/* Service Details & Description */}
                   {currentService && (
                     <>
-                      {/* Service Code & Info Badge */}
-                      <div className="bg-slate-950/90 border border-cyan-500/30 rounded-xl p-3 flex justify-between items-center shadow-lg">
-                        <div className="flex items-center gap-2">
-                          <i className="fas fa-barcode text-cyan-400 text-sm"></i>
-                          <div>
-                            <span className="text-[11px] font-extrabold text-white block">সার্ভিস কোড (Service Code):</span>
-                            <span className="text-[10px] text-cyan-200/80">অর্ডার করার সময় এই আইডি দিয়ে প্রসেস হবে</span>
+                      {/* Service Code & Platform Logo Highlight Box */}
+                      {(() => {
+                        const platMeta = getPlatformMeta(currentService.category || currentService.name);
+                        const svcCode = (currentService.apiServiceId && currentService.apiServiceId.trim() !== '') ? currentService.apiServiceId.trim() : currentService.id;
+                        return (
+                          <div className="bg-slate-950/90 border border-cyan-500/30 rounded-xl p-3 flex justify-between items-center shadow-lg">
+                            <div className="flex items-center gap-2.5">
+                              <div
+                                className="w-8 h-8 rounded-lg flex items-center justify-center text-sm shadow-md"
+                                style={{
+                                  color: platMeta.color,
+                                  backgroundColor: `${platMeta.color}25`,
+                                  border: `1px solid ${platMeta.color}40`
+                                }}
+                              >
+                                <i className={platMeta.icon}></i>
+                              </div>
+                              <div>
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-[11px] font-extrabold text-white block">সার্ভিস কোড (Service Code):</span>
+                                  <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-white/5 text-slate-300">
+                                    {platMeta.name}
+                                  </span>
+                                </div>
+                                <span className="text-[10px] text-cyan-200/80">অর্ডার করার সময় এই আইডি দিয়ে প্রসেস হবে</span>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-1.5 bg-cyan-950/90 px-3 py-1.5 rounded-lg border border-cyan-500/40 shadow-inner">
+                              <i className={platMeta.icon} style={{ color: platMeta.color }}></i>
+                              <span className="font-mono font-black text-xs text-cyan-300">
+                                #{svcCode}
+                              </span>
+                            </div>
                           </div>
-                        </div>
-                        <span className="font-mono font-black text-xs text-cyan-300 bg-cyan-950 px-3 py-1 rounded-lg border border-cyan-500/40 shadow-inner">
-                          #{(currentService.apiServiceId && currentService.apiServiceId.trim() !== '') ? currentService.apiServiceId.trim() : currentService.id}
-                        </span>
-                      </div>
+                        );
+                      })()}
 
                       {currentService.desc && (
                         <div className="bg-blue-500/5 border border-blue-500/10 rounded-xl p-3">
@@ -6196,9 +6274,17 @@ export default function App() {
                     return (
                       <div key={o.id} className="glass-card p-4">
                         <div className="flex justify-between items-start mb-2">
-                          <span className="text-[9px] font-mono text-slate-400 bg-slate-800/80 px-2 py-0.5 rounded">
-                            #{o.id.slice(-8)}
-                          </span>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="text-[9px] font-mono text-slate-400 bg-slate-800/80 px-2 py-0.5 rounded">
+                              #{o.id.slice(-8)}
+                            </span>
+                            {o.serviceCode && (
+                              <span className="text-[9px] font-mono font-bold text-cyan-300 bg-cyan-950/90 px-2 py-0.5 rounded border border-cyan-500/30 flex items-center gap-1">
+                                <i className={meta.icon} style={{ color: meta.color }}></i>
+                                <span>Code: #{o.serviceCode}</span>
+                              </span>
+                            )}
+                          </div>
                           <span className={`order-status ${stClass}`}>
                             <i className={`fas ${stIcon} mr-1 text-[7px]`}></i>
                             {o.status || 'Pending'}
@@ -11301,22 +11387,33 @@ export default function App() {
 
                   {allAdminOrdersList
                     .filter((o) => (orderStatusFilter === 'all' ? true : o.status === orderStatusFilter))
-                    .map((o) => (
-                      <div key={o.id} className="glass-card p-4 space-y-2">
-                        <div className="flex justify-between items-center text-xs">
-                          <span className="font-mono text-slate-400 font-bold">#{o.id.slice(-8)}</span>
-                          <div className="flex items-center gap-2">
-                            {(o.serviceCode || o.serviceId) && (
-                              <span className="font-mono text-[9px] font-bold text-cyan-300 bg-cyan-950 px-2 py-0.5 rounded border border-cyan-500/30">
-                                Code: #{o.serviceCode || o.serviceId}
-                              </span>
-                            )}
-                            <span className="font-mono text-slate-400 text-[10px]">User: {o.uid.slice(0, 8)}</span>
+                    .map((o) => {
+                      const meta = getPlatformMeta(o.service);
+                      return (
+                        <div key={o.id} className="glass-card p-4 space-y-2">
+                          <div className="flex justify-between items-center text-xs">
+                            <span className="font-mono text-slate-400 font-bold">#{o.id.slice(-8)}</span>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              {(o.serviceCode || o.serviceId) && (
+                                <span className="font-mono text-[9px] font-bold text-cyan-300 bg-cyan-950 px-2 py-0.5 rounded border border-cyan-500/30 flex items-center gap-1">
+                                  <i className={meta.icon} style={{ color: meta.color }}></i>
+                                  <span>Code: #{o.serviceCode || o.serviceId}</span>
+                                </span>
+                              )}
+                              <span className="font-mono text-slate-400 text-[10px]">User: {o.uid.slice(0, 8)}</span>
+                            </div>
                           </div>
-                        </div>
 
-                        <h4 className="font-extrabold text-xs text-white leading-snug">{o.service}</h4>
-                        <p className="text-[10px] text-slate-400 font-mono truncate">{o.link}</p>
+                          <div className="flex items-center gap-2">
+                            <div
+                              className="w-6 h-6 rounded-lg flex items-center justify-center text-xs flex-shrink-0"
+                              style={{ color: meta.color, backgroundColor: `${meta.color}20`, border: `1px solid ${meta.color}30` }}
+                            >
+                              <i className={meta.icon}></i>
+                            </div>
+                            <h4 className="font-extrabold text-xs text-white leading-snug">{o.service}</h4>
+                          </div>
+                          <p className="text-[10px] text-slate-400 font-mono truncate">{o.link}</p>
 
                         <div className="flex justify-between items-center pt-2 border-t border-white/5">
                           <div className="text-xs">
@@ -11349,7 +11446,8 @@ export default function App() {
                           </div>
                         </div>
                       </div>
-                    ))}
+                    );
+                  })}
                 </div>
               )}
 
@@ -11449,20 +11547,34 @@ export default function App() {
 
                   {/* Existing Services List */}
                   <div className="space-y-2">
-                    {allServices.map((svc) => (
-                      <div key={svc.id} className="p-3 bg-slate-900/80 border border-white/10 rounded-2xl flex items-center justify-between">
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span className="text-[9px] bg-blue-500/20 text-blue-300 font-bold px-2 py-0.5 rounded">
-                              {svc.category}
-                            </span>
-                            <span className="text-[9px] font-mono text-cyan-300 font-bold bg-cyan-950 px-2 py-0.5 rounded border border-cyan-500/30">
-                              Code: #{svc.apiServiceId || svc.id}
-                            </span>
+                    {allServices.map((svc) => {
+                      const platMeta = getPlatformMeta(svc.category || svc.name);
+                      return (
+                        <div key={svc.id} className="p-3 bg-slate-900/80 border border-white/10 rounded-2xl flex items-center justify-between">
+                          <div className="flex items-start gap-2.5">
+                            <div
+                              className="w-8 h-8 rounded-lg flex items-center justify-center text-xs flex-shrink-0 mt-0.5"
+                              style={{
+                                color: platMeta.color,
+                                backgroundColor: `${platMeta.color}20`,
+                                border: `1px solid ${platMeta.color}40`
+                              }}
+                            >
+                              <i className={platMeta.icon}></i>
+                            </div>
+                            <div>
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="text-[9px] bg-blue-500/20 text-blue-300 font-bold px-2 py-0.5 rounded">
+                                  {svc.category}
+                                </span>
+                                <span className="text-[9px] font-mono text-cyan-300 font-bold bg-cyan-950 px-2 py-0.5 rounded border border-cyan-500/30">
+                                  Code: #{svc.apiServiceId || svc.id}
+                                </span>
+                              </div>
+                              <h4 className="font-extrabold text-xs text-white mt-1">{svc.name}</h4>
+                              <p className="text-[10px] text-emerald-400 font-bold">৳ {svc.price} / 1k</p>
+                            </div>
                           </div>
-                          <h4 className="font-extrabold text-xs text-white mt-1">{svc.name}</h4>
-                          <p className="text-[10px] text-emerald-400 font-bold">৳ {svc.price} / 1k</p>
-                        </div>
 
                         <div className="flex items-center gap-1.5">
                           <button
@@ -11488,9 +11600,10 @@ export default function App() {
                           </button>
                         </div>
                       </div>
-                    ))}
-                  </div>
+                    );
+                  })}
                 </div>
+              </div>
               )}
 
               {/* SUB TAB 5: BROADCAST NOTIFICATIONS & LIVE NOTICE BOARD */}
@@ -11898,31 +12011,57 @@ export default function App() {
                   </div>
 
                   {/* SMM Panel API Config */}
-                  <div className="glass-card p-5 space-y-4">
-                    <h3 className="font-extrabold text-xs text-white flex items-center gap-2">
-                      <i className="fas fa-sliders-h text-blue-400"></i>
-                      <span>SMM Panel API Configuration</span>
-                    </h3>
-
-                    <div>
-                      <label className="form-label">SMMGen API Key</label>
-                      <input
-                        type="text"
-                        className="input-modern font-mono text-xs"
-                        defaultValue="abb6b46205ede0b57a7c53580646fc7a"
-                        disabled
-                      />
+                  <div className="glass-card p-5 space-y-4 border-cyan-500/30">
+                    <div className="flex items-center justify-between">
+                      <h3 className="font-extrabold text-xs text-white flex items-center gap-2">
+                        <i className="fas fa-sliders-h text-cyan-400"></i>
+                        <span>SMM Panel Provider API Configuration</span>
+                      </h3>
+                      <span className="text-[10px] font-mono font-bold text-cyan-300 bg-cyan-950 px-2 py-0.5 rounded-md border border-cyan-500/30">
+                        {smmProviderApiKey ? 'ACTIVE / ONLINE' : 'NOT CONFIGURED'}
+                      </span>
                     </div>
 
                     <div>
-                      <label className="form-label">API Base URL</label>
+                      <label className="form-label text-slate-300">SMM Provider API Key (এডমিন সিক্রেট এপিআই কি)</label>
                       <input
                         type="text"
-                        className="input-modern font-mono text-xs"
-                        defaultValue="https://my.smmgen.com/api/v2"
-                        disabled
+                        className="input-modern font-mono text-xs text-cyan-300 bg-slate-950/90 border-cyan-500/30"
+                        value={smmProviderApiKey}
+                        onChange={(e) => setSmmProviderApiKey(e.target.value)}
+                        placeholder="e.g. 64994346bbbbeeaa10307df325162283"
+                      />
+                      <p className="text-[10px] text-slate-400 mt-1">ইউজার যখন কোনো অর্ডার করবে, তখন এই এপিআই কি (API Key) দিয়ে সরাসরি প্রভাইডারে অর্ডার চলে যাবে</p>
+                    </div>
+
+                    <div>
+                      <label className="form-label text-slate-300">API Base URL (প্রোভাইডার এপিআই লিঙ্ক)</label>
+                      <input
+                        type="text"
+                        className="input-modern font-mono text-xs text-slate-200 bg-slate-950/90"
+                        value={smmProviderApiUrl}
+                        onChange={(e) => setSmmProviderApiUrl(e.target.value)}
+                        placeholder="https://my.smmgen.com/api/v2"
                       />
                     </div>
+
+                    <button
+                      onClick={() => handleSaveSmmProviderConfig(smmProviderApiKey, smmProviderApiUrl)}
+                      disabled={isSavingSmmProvider}
+                      className="w-full py-2.5 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-extrabold text-xs rounded-xl shadow-lg transition active:scale-95 flex items-center justify-center gap-2"
+                    >
+                      {isSavingSmmProvider ? (
+                        <>
+                          <i className="fas fa-spinner fa-spin"></i>
+                          <span>SAVING API SETTINGS...</span>
+                        </>
+                      ) : (
+                        <>
+                          <i className="fas fa-save"></i>
+                          <span>SAVE SMM PROVIDER API (এপিআই সেভ করুন)</span>
+                        </>
+                      )}
+                    </button>
 
                     <div className="pt-2 border-t border-white/10">
                       <h4 className="font-extrabold text-xs text-white mb-2">Data Export & Backup</h4>
@@ -13645,9 +13784,10 @@ export default function App() {
                         <label className="block text-[11px] font-bold text-slate-300 mb-1">Provider API Base URL:</label>
                         <input
                           type="text"
-                          readOnly
-                          value="https://my.smmgen.com/api/v2"
+                          value={smmProviderApiUrl}
+                          onChange={(e) => setSmmProviderApiUrl(e.target.value)}
                           className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 font-mono text-cyan-300"
+                          placeholder="https://my.smmgen.com/api/v2"
                         />
                       </div>
 
@@ -13655,11 +13795,30 @@ export default function App() {
                         <label className="block text-[11px] font-bold text-slate-300 mb-1">Provider API Secret Key:</label>
                         <input
                           type="text"
-                          readOnly
-                          value="abb6b46205ede0b57a7c53580646fc7a"
-                          className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 font-mono text-slate-400"
+                          value={smmProviderApiKey}
+                          onChange={(e) => setSmmProviderApiKey(e.target.value)}
+                          className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 font-mono text-emerald-300"
+                          placeholder="64994346bbbbeeaa10307df325162283"
                         />
                       </div>
+
+                      <button
+                        onClick={() => handleSaveSmmProviderConfig(smmProviderApiKey, smmProviderApiUrl)}
+                        disabled={isSavingSmmProvider}
+                        className="w-full py-2.5 bg-cyan-600 hover:bg-cyan-500 text-white font-extrabold text-xs rounded-xl shadow transition active:scale-95 flex items-center justify-center gap-2"
+                      >
+                        {isSavingSmmProvider ? (
+                          <>
+                            <i className="fas fa-spinner fa-spin"></i>
+                            <span>SAVING CONFIGURATION...</span>
+                          </>
+                        ) : (
+                          <>
+                            <i className="fas fa-save"></i>
+                            <span>UPDATE PROVIDER API CONFIG (সেভ করুন)</span>
+                          </>
+                        )}
+                      </button>
 
                       <div className={`p-3 rounded-xl border space-y-1 transition ${
                         apiSystemEnabled
@@ -13863,34 +14022,43 @@ export default function App() {
           {/* SEARCH MODAL */}
           {showSearchModal && (
             <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex flex-col justify-end sm:justify-center p-0 sm:p-4 animate-fade-in">
-              <div className="bg-[#0b1329] border border-blue-500/30 rounded-t-3xl sm:rounded-3xl max-h-[90vh] flex flex-col overflow-hidden shadow-[0_0_50px_rgba(59,130,246,0.3)] w-full max-w-lg mx-auto">
+              <div className="bg-[#0b1329] border border-blue-500/30 rounded-t-3xl sm:rounded-3xl max-h-[92vh] flex flex-col overflow-hidden shadow-[0_0_50px_rgba(59,130,246,0.3)] w-full max-w-lg mx-auto">
                 {/* Modal Header */}
-                <div className="p-4 border-b border-white/10 flex items-center justify-between bg-slate-900/80">
+                <div className="p-4 border-b border-white/10 flex items-center justify-between bg-slate-900/90">
                   <div className="flex items-center gap-2.5">
-                    <div className="w-8 h-8 rounded-xl bg-blue-500/20 flex items-center justify-center text-blue-400">
+                    <div className="w-8 h-8 rounded-xl bg-blue-500/20 border border-blue-500/30 flex items-center justify-center text-blue-400">
                       <i className="fas fa-search text-xs"></i>
                     </div>
                     <div>
-                      <h3 className="font-extrabold text-sm text-white">Search Services (সার্চ করুন)</h3>
-                      <p className="text-[9px] text-slate-400">Find any SMM service by name, platform or ID</p>
+                      <h3 className="font-extrabold text-sm text-white flex items-center gap-2">
+                        <span>Search & Browse Services</span>
+                        <span className="text-[9px] font-bold px-2 py-0.5 bg-blue-500/20 text-blue-300 rounded-full border border-blue-500/30">
+                          {allServices.length} Services
+                        </span>
+                      </h3>
+                      <p className="text-[10px] text-slate-400">সার্ভিস কোড বা ক্যাটাগরি অনুযায়ী সহজেই খুঁজুন ও অর্ডার করুন</p>
                     </div>
                   </div>
                   <button
-                    onClick={() => setShowSearchModal(false)}
-                    className="w-8 h-8 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-slate-400 hover:text-white"
+                    onClick={() => {
+                      setShowSearchModal(false);
+                      setGlobalSearchQuery('');
+                      setSearchSelectedCategory('all');
+                    }}
+                    className="w-8 h-8 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/10 transition"
                   >
                     <i className="fas fa-times text-xs"></i>
                   </button>
                 </div>
 
                 {/* Search Input Bar */}
-                <div className="p-4 border-b border-white/10 bg-slate-900/40">
+                <div className="p-3 border-b border-white/10 bg-slate-900/60">
                   <div className="relative">
                     <input
                       type="text"
                       autoFocus
                       className="input-modern pl-10 pr-10 text-xs"
-                      placeholder="Type platform or service (e.g., Facebook, Followers, Likes, TikTok)..."
+                      placeholder="সার্ভিস নাম, ক্যাটাগরি বা কোড লিখুন (e.g., Facebook, Followers, 101)..."
                       value={globalSearchQuery}
                       onChange={(e) => setGlobalSearchQuery(e.target.value)}
                     />
@@ -13906,11 +14074,53 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Search Results List */}
-                <div className="p-4 overflow-y-auto max-h-[55vh] space-y-2.5">
+                {/* Platform Category Selector Tabs */}
+                {(() => {
+                  const uniqueCategories = Array.from(new Set(allServices.map((s) => s.category))).filter((c): c is string => Boolean(c));
+                  return (
+                    <div className="px-3 py-2 border-b border-white/10 bg-slate-950/80 flex items-center gap-1.5 overflow-x-auto no-scrollbar">
+                      <button
+                        onClick={() => setSearchSelectedCategory('all')}
+                        className={`px-3 py-1.5 rounded-xl text-[11px] font-bold whitespace-nowrap transition flex items-center gap-1.5 ${
+                          searchSelectedCategory === 'all'
+                            ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30'
+                            : 'bg-white/5 text-slate-400 hover:text-white hover:bg-white/10'
+                        }`}
+                      >
+                        <i className="fas fa-layer-group text-[10px]"></i>
+                        <span>All ({allServices.length})</span>
+                      </button>
+                      {uniqueCategories.map((cat) => {
+                        const meta = getPlatformMeta(cat);
+                        const count = allServices.filter((s) => s.category === cat).length;
+                        const isSelected = searchSelectedCategory === cat;
+                        return (
+                          <button
+                            key={cat}
+                            onClick={() => setSearchSelectedCategory(cat)}
+                            className={`px-3 py-1.5 rounded-xl text-[11px] font-bold whitespace-nowrap transition flex items-center gap-1.5 ${
+                              isSelected
+                                ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md'
+                                : 'bg-white/5 text-slate-400 hover:text-white hover:bg-white/10'
+                            }`}
+                          >
+                            <i className={meta.icon} style={{ color: isSelected ? '#ffffff' : meta.color }}></i>
+                            <span>{cat}</span>
+                            <span className="text-[9px] opacity-75 font-mono">({count})</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
+
+                {/* Search & Category-Grouped Results List */}
+                <div className="p-3.5 overflow-y-auto max-h-[58vh] space-y-4">
                   {(() => {
                     const q = globalSearchQuery.trim().toLowerCase();
                     const filtered = allServices.filter((s) => {
+                      const matchesCategory = searchSelectedCategory === 'all' || s.category === searchSelectedCategory;
+                      if (!matchesCategory) return false;
                       if (!q) return true;
                       return (
                         s.name.toLowerCase().includes(q) ||
@@ -13923,57 +14133,126 @@ export default function App() {
 
                     if (filtered.length === 0) {
                       return (
-                        <div className="text-center py-10">
-                          <i className="fas fa-search-minus text-3xl text-slate-600 mb-2"></i>
-                          <p className="text-xs text-slate-400 font-bold">No services found for "{globalSearchQuery}"</p>
-                          <p className="text-[10px] text-slate-500 mt-1">Try searching for "Facebook", "Likes", or "Followers"</p>
+                        <div className="text-center py-12">
+                          <div className="w-14 h-14 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center text-slate-500 mx-auto mb-3">
+                            <i className="fas fa-search-minus text-2xl"></i>
+                          </div>
+                          <p className="text-xs text-slate-300 font-bold">কোনো সার্ভিস পাওয়া যায়নি "{globalSearchQuery}"</p>
+                          <p className="text-[10px] text-slate-500 mt-1">অন্য কোনো নাম বা ক্যাটাগরি দিয়ে চেষ্টা করুন</p>
+                          <button
+                            onClick={() => {
+                              setGlobalSearchQuery('');
+                              setSearchSelectedCategory('all');
+                            }}
+                            className="mt-3 px-3.5 py-1.5 rounded-xl bg-blue-600/30 hover:bg-blue-600/50 text-blue-300 text-xs font-bold transition"
+                          >
+                            সব সার্ভিস দেখুন
+                          </button>
                         </div>
                       );
                     }
 
-                    return filtered.map((svc) => {
-                      const meta = getPlatformMeta(svc.category);
+                    // Group by category
+                    const grouped: Record<string, typeof allServices> = {};
+                    filtered.forEach((s) => {
+                      const catName = s.category || 'Other Services';
+                      if (!grouped[catName]) grouped[catName] = [];
+                      grouped[catName].push(s);
+                    });
+
+                    return Object.entries(grouped).map(([catName, servicesInCat]) => {
+                      const catMeta = getPlatformMeta(catName);
                       return (
-                        <div
-                          key={svc.id}
-                          className="p-3.5 rounded-2xl bg-slate-900/80 border border-white/10 hover:border-blue-500/40 transition-all flex flex-col gap-2"
-                        >
-                          <div className="flex items-center justify-between">
+                        <div key={catName} className="space-y-2">
+                          {/* Category Header Banner */}
+                          <div className="flex items-center justify-between px-3 py-2 rounded-xl bg-slate-900/90 border border-white/10 shadow-sm sticky top-0 z-10 backdrop-blur-md">
                             <div className="flex items-center gap-2">
-                              <span
-                                className="w-6 h-6 rounded-lg flex items-center justify-center text-xs"
-                                style={{ color: meta.color, backgroundColor: `${meta.color}20` }}
+                              <div
+                                className="w-6 h-6 rounded-lg flex items-center justify-center text-xs shadow-sm"
+                                style={{
+                                  color: catMeta.color,
+                                  backgroundColor: `${catMeta.color}25`,
+                                  border: `1px solid ${catMeta.color}40`
+                                }}
                               >
-                                <i className={meta.icon}></i>
-                              </span>
-                              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                                {svc.category}
+                                <i className={catMeta.icon}></i>
+                              </div>
+                              <span className="font-extrabold text-xs text-white tracking-wide">
+                                {catName}
                               </span>
                             </div>
-                            <span className="text-[9px] font-mono font-bold text-cyan-300 bg-cyan-950 px-2.5 py-0.5 rounded-full border border-cyan-500/30">
-                              Code: #{svc.apiServiceId || svc.id}
+                            <span className="text-[10px] font-bold text-slate-400 px-2 py-0.5 rounded-full bg-white/5 border border-white/5">
+                              {servicesInCat.length} Services
                             </span>
                           </div>
 
-                          <h4 className="font-extrabold text-xs text-white leading-snug">{svc.name}</h4>
+                          {/* Services in this category */}
+                          <div className="space-y-2 pl-1">
+                            {servicesInCat.map((svc) => {
+                              const platMeta = getPlatformMeta(svc.category || svc.name);
+                              const svcCode = (svc.apiServiceId && svc.apiServiceId.trim() !== '') ? svc.apiServiceId.trim() : svc.id;
+                              return (
+                                <div
+                                  key={svc.id}
+                                  className="p-3.5 rounded-2xl bg-slate-900/70 border border-white/10 hover:border-blue-500/40 transition-all flex flex-col gap-2.5 shadow-sm hover:shadow-md"
+                                >
+                                  {/* Top row: Platform Logo + Service Code & Limits */}
+                                  <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-2">
+                                      {/* Platform Logo Badge right next to Service ID */}
+                                      <div
+                                        className="w-7 h-7 rounded-lg flex items-center justify-center text-xs shadow-sm flex-shrink-0"
+                                        style={{
+                                          color: platMeta.color,
+                                          backgroundColor: `${platMeta.color}20`,
+                                          border: `1px solid ${platMeta.color}40`
+                                        }}
+                                      >
+                                        <i className={platMeta.icon}></i>
+                                      </div>
+                                      <div className="flex items-center gap-1.5">
+                                        <span className="text-[10px] font-mono font-black text-cyan-300 bg-cyan-950/90 px-2.5 py-1 rounded-lg border border-cyan-500/30 flex items-center gap-1 shadow-inner">
+                                          <i className="fas fa-barcode text-[9px] text-cyan-400"></i>
+                                          <span>ID: #{svcCode}</span>
+                                        </span>
+                                      </div>
+                                    </div>
+                                    <span className="text-[10px] text-slate-400 font-medium">
+                                      Min: {svc.min} • Max: {svc.max?.toLocaleString()}
+                                    </span>
+                                  </div>
 
-                          <div className="flex items-center justify-between pt-1 border-t border-white/5">
-                            <div className="flex items-center gap-3">
-                              <span className="text-sm font-black text-emerald-400">
-                                ৳ {svc.price} <span className="text-[9px] text-slate-400 font-normal">/1k</span>
-                              </span>
-                              <span className="text-[9px] text-slate-400">
-                                Min: {svc.min} | Max: {svc.max?.toLocaleString()}
-                              </span>
-                            </div>
+                                  {/* Service Name */}
+                                  <h4 className="font-extrabold text-xs text-white leading-snug">
+                                    {svc.name}
+                                  </h4>
 
-                            <button
-                              onClick={() => handleSelectServiceFromSearch(svc)}
-                              className="px-3 py-1.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-extrabold text-[10px] rounded-xl shadow-md active:scale-95 transition flex items-center gap-1"
-                            >
-                              <span>SELECT</span>
-                              <i className="fas fa-arrow-right text-[8px]"></i>
-                            </button>
+                                  {svc.desc && (
+                                    <p className="text-[10px] text-slate-400 line-clamp-1 bg-white/5 px-2 py-1 rounded-lg">
+                                      {svc.desc}
+                                    </p>
+                                  )}
+
+                                  {/* Bottom row: Price & Select Button */}
+                                  <div className="flex items-center justify-between pt-2 border-t border-white/5">
+                                    <div>
+                                      <span className="text-sm font-black text-emerald-400">
+                                        ৳ {svc.price}
+                                      </span>
+                                      <span className="text-[10px] text-slate-400 font-normal ml-1">/ 1,000</span>
+                                    </div>
+
+                                    <button
+                                      onClick={() => handleSelectServiceFromSearch(svc)}
+                                      className="px-3.5 py-1.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-extrabold text-[11px] rounded-xl shadow-md active:scale-95 transition flex items-center gap-1.5"
+                                    >
+                                      <span>অর্ডার করুন</span>
+                                      <i className="fas fa-arrow-right text-[9px]"></i>
+                                    </button>
+                                  </div>
+                                </div>
+                              );
+                            })}
                           </div>
                         </div>
                       );

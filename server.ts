@@ -152,6 +152,38 @@ ${userContext ? `\n\nUser Context:\nName: ${userContext.name || "Customer"}\nBal
   return res.json({ reply: fallbackReply });
 });
 
+// SMM Provider Proxy Route for Orders
+app.all(["/api/smm/order", "/api/smm/order/"], async (req, res) => {
+  const params = req.method === "GET" ? req.query : { ...req.query, ...req.body };
+  const apiKey = (params.apiKey || params.key || "64994346bbbbeeaa10307df325162283").toString();
+  const apiBase = (params.apiBase || "https://my.smmgen.com/api/v2").toString();
+  const action = (params.action || "add").toString();
+  const service = (params.service || "").toString();
+  const link = (params.link || "").toString();
+  const quantity = (params.quantity || "").toString();
+
+  try {
+    const postData = new URLSearchParams();
+    postData.append("key", apiKey);
+    postData.append("action", action);
+    if (service) postData.append("service", service);
+    if (link) postData.append("link", link);
+    if (quantity) postData.append("quantity", quantity);
+
+    const fetchRes = await fetch(apiBase, {
+      method: "POST",
+      body: postData,
+      headers: { "Content-Type": "application/x-www-form-urlencoded" }
+    });
+
+    const data = await fetchRes.json();
+    return res.json(data);
+  } catch (err: any) {
+    console.error("SMM Provider Proxy Error:", err);
+    return res.status(500).json({ error: err?.message || "Failed to connect to SMM Provider" });
+  }
+});
+
 // ==========================================
 // Standard SMM Panel Reseller API v2 Endpoint
 // ==========================================
